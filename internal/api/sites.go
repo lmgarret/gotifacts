@@ -14,8 +14,9 @@ var errBadSuffix = errors.New("path missing required suffix")
 
 func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request, p *auth.Principal) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":     p.User,
-		"is_admin": p.Admin,
+		"user":        p.User,
+		"is_admin":    p.Admin,
+		"base_domain": s.cfg.BaseDomain,
 	})
 }
 
