@@ -1,0 +1,13 @@
+.git
+.github
+web/node_modules
+web/dist
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+examples
+*.md
+!README.md

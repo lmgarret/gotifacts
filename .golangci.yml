@@ -16,6 +16,10 @@ linters:
     godot:
       scope: declarations
       capital: false
+  exclusions:
+    paths:
+      - web/node_modules
+      - web/dist
 
 formatters:
   enable:

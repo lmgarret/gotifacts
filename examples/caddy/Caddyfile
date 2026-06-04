@@ -1,0 +1,60 @@
+# ============================================================================
+# Illustrative Caddyfile for gotifacts. NOT prescriptive — adapt to your TLS
+# setup and SSO provider. Caddy obtains TLS certificates automatically.
+#
+# Key ideas:
+#   * apex "/" and "/api/*"  -> forward-auth ON; inject the identity header
+#   * apex "/ingest/*"       -> forward-auth OFF; API-key guarded by gotifacts
+#   * *.<base> / *.*.<base>  -> serve site content + frame-ancestors header
+#   * ALWAYS strip any client-supplied identity header before injecting it
+#   * gotifacts must see Caddy's IP in GOTIFACTS_TRUSTED_PROXIES
+#
+# This example uses forward_auth against an SSO backend (e.g. Authelia,
+# oauth2-proxy) that returns the user in the Remote-User header.
+# ============================================================================
+
+# Replace example.com with your base domain.
+(strip_identity) {
+	# SECURITY: never trust a client-supplied identity header.
+	request_header -Remote-User
+}
+
+# === Apex: portal + management API + ingest =================================
+example.com {
+	import strip_identity
+
+	# --- Ingest plane: forward-auth OFF (API key enforced by gotifacts) -----
+	handle /ingest/* {
+		request_body {
+			max_size 64MB
+		}
+		reverse_proxy gotifacts:8080
+	}
+
+	# --- Management plane: forward-auth ON ----------------------------------
+	handle {
+		forward_auth your-sso-backend:9091 {
+			uri /api/verify?rd=https://auth.example.com
+			# Copy the authenticated user from the SSO response into the
+			# header gotifacts expects.
+			copy_headers Remote-User
+		}
+		reverse_proxy gotifacts:8080
+	}
+}
+
+# === Site content: one label level (*.example.com) ==========================
+*.example.com {
+	import strip_identity
+	reverse_proxy gotifacts:8080
+	# Allow the portal to frame these sites for live thumbnails.
+	header Content-Security-Policy "frame-ancestors https://example.com"
+}
+
+# === Site content: two label levels (*.*.example.com) =======================
+# Caddy wildcards match a single label, so deeper hosts need their own block.
+*.*.example.com {
+	import strip_identity
+	reverse_proxy gotifacts:8080
+	header Content-Security-Policy "frame-ancestors https://example.com"
+}
