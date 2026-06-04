@@ -28,7 +28,7 @@ func testConfig(t *testing.T) *config.Config {
 }
 
 func newReq(remoteAddr, user string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "http://example.com/api/me", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com/api/me", nil)
 	r.RemoteAddr = remoteAddr
 	if user != "" {
 		r.Header.Set("Remote-User", user)
@@ -101,7 +101,7 @@ func TestAPIKeyAuthAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "http://example.com/ingest/sites", nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
 	r.Header.Set("Authorization", "Bearer "+tok)
 	p := a.APIKey(context.Background(), r)
 	if p == nil {
@@ -119,7 +119,7 @@ func TestAPIKeyAuthAndScope(t *testing.T) {
 	}
 
 	// Bogus token rejected.
-	r2 := httptest.NewRequest(http.MethodPost, "http://example.com/ingest/sites", nil)
+	r2 := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
 	r2.Header.Set("Authorization", "Bearer gtf_nope")
 	if a.APIKey(context.Background(), r2) != nil {
 		t.Fatal("bogus token must not authenticate")
@@ -129,7 +129,7 @@ func TestAPIKeyAuthAndScope(t *testing.T) {
 	// ForwardAuth there); confirm an admin key grants publish anywhere.
 	tokA, hashA, _ := keys.Generate()
 	_, _ = st.CreateKey(context.Background(), "admin", keys.ScopeAdmin, "", hashA)
-	rA := httptest.NewRequest(http.MethodPost, "http://example.com/ingest/sites", nil)
+	rA := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
 	rA.Header.Set("Authorization", "Bearer "+tokA)
 	pa := a.APIKey(context.Background(), rA)
 	if pa == nil || !pa.Admin || !pa.CanPublishTo("anywhere") {
