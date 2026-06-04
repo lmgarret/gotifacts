@@ -26,7 +26,7 @@ export function Portal({ me }: Props) {
         setTree(res.tree);
         setCount(res.count);
         const tags = new Set<string>();
-        res.sites.forEach((s) => s.tags?.forEach((t) => tags.add(t)));
+        (res.sites ?? []).forEach((s) => s.tags?.forEach((t) => tags.add(t)));
         setAllTags([...tags].sort());
         setError(null);
       })

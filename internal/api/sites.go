@@ -38,6 +38,9 @@ func (s *Server) handleListSites(w http.ResponseWriter, r *http.Request, p *auth
 		writeError(w, http.StatusInternalServerError, "failed to list sites")
 		return
 	}
+	if sites == nil {
+		sites = []store.Site{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"sites": sites,
 		"tree":  BuildTree(sites),
