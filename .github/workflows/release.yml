@@ -52,6 +52,7 @@ jobs:
 
       - name: Generate AI changelog
         id: changelog
+        if: steps.prev_tag.outputs.tag != ''
         uses: nosovj/llm-release-action@v1
         with:
           model: anthropic/claude-sonnet-4-6
