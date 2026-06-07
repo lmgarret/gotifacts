@@ -1,0 +1,20 @@
+# Binaries
+/gotifacts
+*.exe
+
+# Local data / SQLite
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Node
+web/node_modules/
+
+# Env
+.env
+.env.local
+
+# Editor / OS
+.DS_Store
+*.swp

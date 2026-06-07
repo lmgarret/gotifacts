@@ -1,0 +1,36 @@
+# Proxy-agnostic compose file. gotifacts listens on plain HTTP :8080 and never
+# terminates TLS. Put ANY reverse proxy in front of it (see examples/nginx and
+# examples/caddy) to provide TLS and forward-auth/SSO. The proxy and gotifacts
+# share a network; only the proxy is exposed to the internet.
+services:
+  gotifacts:
+    build: .
+    # Or use the published image:
+    # image: ghcr.io/lmgarret/gotifacts:latest
+    restart: unless-stopped
+    environment:
+      # See .env.example for the full reference.
+      GOTIFACTS_BASE_DOMAIN: ${GOTIFACTS_BASE_DOMAIN:?set in .env}
+      GOTIFACTS_ADMIN_USERS: ${GOTIFACTS_ADMIN_USERS:-}
+      GOTIFACTS_TRUSTED_PROXIES: ${GOTIFACTS_TRUSTED_PROXIES:-}
+      GOTIFACTS_FORWARD_AUTH_HEADER: ${GOTIFACTS_FORWARD_AUTH_HEADER:-Remote-User}
+      GOTIFACTS_VERSIONING_ENABLED: ${GOTIFACTS_VERSIONING_ENABLED:-false}
+      GOTIFACTS_VERSIONING_KEEP: ${GOTIFACTS_VERSIONING_KEEP:-5}
+      GOTIFACTS_MAX_UPLOAD_BYTES: ${GOTIFACTS_MAX_UPLOAD_BYTES:-67108864}
+    volumes:
+      - gotifacts-data:/data
+    # Bind only to the internal network shared with your proxy. Do NOT expose
+    # this port directly to the internet — the proxy enforces TLS + auth.
+    expose:
+      - "8080"
+    networks:
+      - web
+
+volumes:
+  gotifacts-data:
+
+networks:
+  web:
+    # If your reverse proxy runs in its own compose project, mark this external
+    # and attach the proxy to it.
+    # external: true
