@@ -15,6 +15,13 @@ import (
 	"os"
 )
 
+// Build-time version info, injected via -ldflags (see Dockerfile).
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	args := os.Args[1:]
 	cmd := "serve"
@@ -29,6 +36,8 @@ func main() {
 		err = runServe(ctx, args)
 	case "keys":
 		err = runKeys(ctx, args)
+	case "version", "--version", "-version":
+		fmt.Printf("gotifacts %s (commit %s, built %s)\n", version, commit, date)
 	case "help", "-h", "--help":
 		usage(os.Stdout)
 	default:

@@ -10,6 +10,9 @@ RUN npm run build
 
 # ---- Stage 2: build the static Go binary ------------------------------------
 FROM golang:1.26-alpine AS build
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
 WORKDIR /src
 # Pre-fetch modules for better layer caching.
 COPY go.mod go.sum ./
@@ -19,7 +22,8 @@ COPY . .
 COPY --from=web /web/dist ./web/dist
 # Create a /data skeleton owned by the non-root runtime user.
 RUN mkdir -p /out/data && \
-    CGO_ENABLED=0 GOFLAGS=-mod=mod go build -trimpath -ldflags="-w -s" \
+    CGO_ENABLED=0 GOFLAGS=-mod=mod go build -trimpath \
+      -ldflags="-w -s -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
       -o /out/gotifacts ./cmd/gotifacts
 
 # ---- Stage 3: minimal runtime image -----------------------------------------
