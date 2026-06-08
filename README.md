@@ -187,6 +187,11 @@ All configuration is via environment variables (no config file). See
 | `GOTIFACTS_MAX_EXTRACT_ENTRIES` | `10000` | Archive entry cap |
 | `GOTIFACTS_VERSIONING_ENABLED` | `false` | Keep old versions on replace; enable rollback |
 | `GOTIFACTS_VERSIONING_KEEP` | `5` | Versions retained per site |
+| `GOTIFACTS_MCP_ENABLED` | `false` | Expose the OAuth-protected MCP server at `/mcp` |
+| `GOTIFACTS_MCP_ALLOWED_USERS` | — | Forward-auth users allowed to grant connector consent (falls back to `GOTIFACTS_ADMIN_USERS`) |
+| `GOTIFACTS_MCP_GROUP` | `claude` | Publish group subtree MCP tokens are confined to |
+| `GOTIFACTS_MCP_TOKEN_TTL` | `1h` | MCP access-token lifetime |
+| `GOTIFACTS_MCP_REFRESH_TTL` | `720h` | MCP refresh-token lifetime |
 
 `gotifacts serve` refuses to start if no admins are reachable (no
 `GOTIFACTS_ADMIN_USERS` + `GOTIFACTS_TRUSTED_PROXIES`); use the CLI to mint an
@@ -250,12 +255,50 @@ Highlights:
 
 ## Publishing from CI or Claude
 
+There are two ways to let Claude publish, suited to different surfaces.
+
+### Skill + API key (CI, Claude Code, the API code-execution tool)
+
 A distributable **Claude skill** lives in
 [`examples/skill/`](examples/skill/SKILL.md). It asks for consent, writes a
 self-contained `index.html`, picks a URL-safe `slug`/`group` (default
 `claude`), publishes via the single-`index` ingest form using `GOTIFACTS_URL` +
 a `publish`-scoped `GOTIFACTS_API_KEY`, and reports the URL. It never touches
 server/proxy credentials.
+
+This works wherever **you** control the environment (CI, Claude Code, the API
+code-execution tool). It does **not** work in default claude.ai / Claude mobile
+conversations, which provide no way to inject those environment variables.
+
+### MCP connector + OAuth (claude.ai mobile/web, Claude Code, the API)
+
+For the consumer apps, set `GOTIFACTS_MCP_ENABLED=true` to expose an OAuth
+2.1-protected [Model Context Protocol](https://modelcontextprotocol.io) server
+at `/mcp` with a single `publish_site` tool. Claude's "custom connector" UI
+authenticates remote MCP servers exclusively via OAuth (no bearer/header
+field), so this is the only path that works on mobile/web.
+
+How it fits the two-plane model:
+
+- The browser-facing **consent** step (`/mcp/oauth/authorize`) is authenticated
+  by your existing forward-auth SSO — it sits on the **forward-auth plane** and
+  is gated to `GOTIFACTS_MCP_ALLOWED_USERS` (or admins). This is the gate that
+  decides *who* may publish.
+- Every machine-facing endpoint (`/mcp`, the token/registration endpoints, and
+  the `/.well-known/oauth-*` discovery documents) is called server-to-server by
+  Claude and must sit on the **no-forward-auth plane**, like `/ingest/*`.
+  Authentication there is OAuth (PKCE, then a bearer access token).
+
+Tokens are `publish`-scoped and confined to `GOTIFACTS_MCP_GROUP` (default
+`claude`), so a connector can never publish outside that subtree. Dynamic Client
+Registration (RFC 7591) lets users add the connector by pasting the URL; it only
+issues a `client_id` and grants no access on its own. See the proxy examples for
+the exact routing split, and `.env.example` for all MCP settings.
+
+To connect: in Claude → Settings → Connectors → *Add custom connector*, enter
+`https://<your-base-domain>/mcp`, complete the SSO consent, then ask Claude to
+publish a page. For the **API MCP connector** or **Claude Code**, the same
+server works with a token obtained via the OAuth flow.
 
 ## Development
 
