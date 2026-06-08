@@ -202,22 +202,31 @@ func (c *Config) Validate() []error {
 	if len(c.AdminUsers) == 0 && len(c.TrustedProxies) == 0 {
 		errs = append(errs, fmt.Errorf("no admins reachable: set GOTIFACTS_ADMIN_USERS and GOTIFACTS_TRUSTED_PROXIES, or create an admin key via the CLI"))
 	}
-	if c.MCPEnabled {
-		// The MCP OAuth consent step is browser-based and authenticated by the
-		// forward-auth proxy; without a trusted proxy and a non-empty consent
-		// allowlist, nobody could ever authorize a connector.
-		if len(c.TrustedProxies) == 0 {
-			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_ENABLED requires GOTIFACTS_TRUSTED_PROXIES for the forward-auth consent step"))
-		}
-		if len(c.MCPAllowedUsers) == 0 && len(c.AdminUsers) == 0 {
-			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_ENABLED requires GOTIFACTS_MCP_ALLOWED_USERS or GOTIFACTS_ADMIN_USERS to gate consent"))
-		}
-		if c.MCPGroup == "" {
-			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_GROUP must not be empty when MCP is enabled"))
-		}
-		if c.MCPAccessTokenTTL <= 0 || c.MCPRefreshTokenTTL <= 0 {
-			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_TOKEN_TTL and GOTIFACTS_MCP_REFRESH_TTL must be positive"))
-		}
+	errs = append(errs, c.validateMCP()...)
+	return errs
+}
+
+// validateMCP returns configuration errors specific to the MCP connector, or
+// nil when MCP is disabled.
+func (c *Config) validateMCP() []error {
+	if !c.MCPEnabled {
+		return nil
+	}
+	var errs []error
+	// The MCP OAuth consent step is browser-based and authenticated by the
+	// forward-auth proxy; without a trusted proxy and a non-empty consent
+	// allowlist, nobody could ever authorize a connector.
+	if len(c.TrustedProxies) == 0 {
+		errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_ENABLED requires GOTIFACTS_TRUSTED_PROXIES for the forward-auth consent step"))
+	}
+	if len(c.MCPAllowedUsers) == 0 && len(c.AdminUsers) == 0 {
+		errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_ENABLED requires GOTIFACTS_MCP_ALLOWED_USERS or GOTIFACTS_ADMIN_USERS to gate consent"))
+	}
+	if c.MCPGroup == "" {
+		errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_GROUP must not be empty when MCP is enabled"))
+	}
+	if c.MCPAccessTokenTTL <= 0 || c.MCPRefreshTokenTTL <= 0 {
+		errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_TOKEN_TTL and GOTIFACTS_MCP_REFRESH_TTL must be positive"))
 	}
 	return errs
 }

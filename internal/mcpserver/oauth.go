@@ -535,14 +535,14 @@ func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
 // rateLimiter is a simple fixed-window limiter guarding client registration.
 type rateLimiter struct {
 	mu     sync.Mutex
-	max    int
+	limit  int
 	window time.Duration
 	count  int
 	reset  time.Time
 }
 
-func newRateLimiter(max int, window time.Duration) *rateLimiter {
-	return &rateLimiter{max: max, window: window}
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{limit: limit, window: window}
 }
 
 func (rl *rateLimiter) allow() bool {
@@ -553,7 +553,7 @@ func (rl *rateLimiter) allow() bool {
 		rl.count = 0
 		rl.reset = now.Add(rl.window)
 	}
-	if rl.count >= rl.max {
+	if rl.count >= rl.limit {
 		return false
 	}
 	rl.count++

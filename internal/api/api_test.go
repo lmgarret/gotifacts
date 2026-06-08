@@ -40,7 +40,8 @@ func TestMCPDisabledIsInert(t *testing.T) {
 	// With MCP off, the discovery and MCP paths are unregistered, so the SPA
 	// catch-all handles them.
 	for _, path := range []string{"/.well-known/oauth-authorization-server", "/mcp"} {
-		resp, err := http.Get(srv.URL + path)
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+path, nil)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +64,8 @@ func TestMCPEnabledMountsRoutes(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/.well-known/oauth-authorization-server")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/.well-known/oauth-authorization-server", nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
