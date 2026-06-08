@@ -50,7 +50,11 @@ func runServe(ctx context.Context, _ []string) error {
 		return fmt.Errorf("load embedded frontend: %w", err)
 	}
 	spa := portal.NewSPA(dist)
-	apex := api.New(cfg, st, spa, log).Handler()
+	apexSrv, err := api.New(cfg, st, spa, log)
+	if err != nil {
+		return fmt.Errorf("init apex server: %w", err)
+	}
+	apex := apexSrv.Handler()
 	sites := portal.NewSiteServer(cfg)
 
 	dispatch := router.NewDispatch(cfg, apex, sites)

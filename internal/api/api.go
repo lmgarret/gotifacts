@@ -11,6 +11,7 @@ import (
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/ingest"
+	"github.com/lmgarret/gotifacts/internal/mcpserver"
 	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
 )
@@ -23,18 +24,29 @@ type Server struct {
 	pub   *ingest.Publisher
 	spa   http.Handler
 	log   *slog.Logger
+	mcp   *mcpserver.Service
 }
 
-// New constructs the apex Server.
-func New(cfg *config.Config, st *store.Store, spa http.Handler, log *slog.Logger) *Server {
-	return &Server{
+// New constructs the apex Server. When MCP is enabled, the OAuth-protected MCP
+// service is built and its routes are registered by Handler.
+func New(cfg *config.Config, st *store.Store, spa http.Handler, log *slog.Logger) (*Server, error) {
+	pub := ingest.New(cfg, st)
+	s := &Server{
 		cfg:   cfg,
 		store: st,
 		authn: auth.New(cfg, st),
-		pub:   ingest.New(cfg, st),
+		pub:   pub,
 		spa:   spa,
 		log:   log,
 	}
+	if cfg.MCPEnabled {
+		m, err := mcpserver.New(cfg, st, pub, log)
+		if err != nil {
+			return nil, err
+		}
+		s.mcp = m
+	}
+	return s, nil
 }
 
 // Handler returns the apex-host HTTP handler.
@@ -58,6 +70,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /ingest/sites/{rest...}", s.requireKey(s.handleIngestRollback))
 	mux.HandleFunc("PATCH /ingest/sites/{rest...}", s.requireKey(s.handleIngestPatch))
 	mux.HandleFunc("DELETE /ingest/sites/{rest...}", s.requireKey(s.handleIngestDelete))
+
+	// MCP plane (OAuth). The browser-facing consent endpoint is forward-auth'd;
+	// the machine-facing endpoints (metadata, register, token, /mcp) are not.
+	if s.mcp != nil {
+		mux.HandleFunc("GET /mcp/oauth/authorize", s.requireUser(s.mcp.HandleAuthorize))
+		mux.HandleFunc("POST /mcp/oauth/authorize", s.requireUser(s.mcp.HandleAuthorize))
+		s.mcp.RegisterPublic(mux)
+	}
 
 	// Everything else on the apex host is the SPA.
 	mux.Handle("/", s.spa)

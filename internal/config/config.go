@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Default values applied when the corresponding environment variable is unset.
@@ -23,6 +24,9 @@ const (
 	DefaultMaxExtractBytes   = 256 << 20 // 256 MiB
 	DefaultMaxExtractEntries = 10000
 	DefaultVersioningKeep    = 5
+	DefaultMCPGroup          = "claude"
+	DefaultMCPAccessTokenTTL = time.Hour
+	DefaultMCPRefreshTTL     = 30 * 24 * time.Hour
 )
 
 // Config holds the fully-resolved runtime configuration.
@@ -51,6 +55,38 @@ type Config struct {
 	VersioningEnabled bool
 	// VersioningKeep is the number of historical versions retained per site.
 	VersioningKeep int
+	// MCPEnabled exposes the OAuth-protected MCP server for publishing. Off by default.
+	MCPEnabled bool
+	// MCPAllowedUsers gates the OAuth consent step; empty means fall back to AdminUsers.
+	MCPAllowedUsers []string
+	// MCPGroup is the publish group subtree MCP-issued tokens are restricted to.
+	MCPGroup string
+	// MCPAccessTokenTTL is the lifetime of an MCP OAuth access token.
+	MCPAccessTokenTTL time.Duration
+	// MCPRefreshTokenTTL is the lifetime of an MCP OAuth refresh token.
+	MCPRefreshTokenTTL time.Duration
+}
+
+// BaseURL returns the canonical https origin of the apex host. It is the OAuth
+// issuer and the base for MCP discovery URLs.
+func (c *Config) BaseURL() string { return "https://" + c.BaseDomain }
+
+// MCPUserAllowed reports whether user may grant MCP OAuth consent. The allowlist
+// is GOTIFACTS_MCP_ALLOWED_USERS, falling back to the admin allowlist.
+func (c *Config) MCPUserAllowed(user string) bool {
+	if user == "" {
+		return false
+	}
+	allowed := c.MCPAllowedUsers
+	if len(allowed) == 0 {
+		allowed = c.AdminUsers
+	}
+	for _, u := range allowed {
+		if strings.EqualFold(u, user) {
+			return true
+		}
+	}
+	return false
 }
 
 // SitesDir returns the directory holding served site content.
@@ -98,6 +134,8 @@ func Load() (*Config, error) {
 		MaxExtractBytes:   DefaultMaxExtractBytes,
 		MaxExtractEntries: DefaultMaxExtractEntries,
 		VersioningKeep:    DefaultVersioningKeep,
+		MCPAllowedUsers:   splitList(os.Getenv("GOTIFACTS_MCP_ALLOWED_USERS")),
+		MCPGroup:          strings.ToLower(envOr("GOTIFACTS_MCP_GROUP", DefaultMCPGroup)),
 	}
 	c.DBPath = envOr("GOTIFACTS_DB_PATH", c.DataDir+"/gotifacts.db")
 
@@ -118,6 +156,15 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if c.VersioningEnabled, err = envBool("GOTIFACTS_VERSIONING_ENABLED", false); err != nil {
+		return nil, err
+	}
+	if c.MCPEnabled, err = envBool("GOTIFACTS_MCP_ENABLED", false); err != nil {
+		return nil, err
+	}
+	if c.MCPAccessTokenTTL, err = envDuration("GOTIFACTS_MCP_TOKEN_TTL", DefaultMCPAccessTokenTTL); err != nil {
+		return nil, err
+	}
+	if c.MCPRefreshTokenTTL, err = envDuration("GOTIFACTS_MCP_REFRESH_TTL", DefaultMCPRefreshTTL); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -154,6 +201,23 @@ func (c *Config) Validate() []error {
 	}
 	if len(c.AdminUsers) == 0 && len(c.TrustedProxies) == 0 {
 		errs = append(errs, fmt.Errorf("no admins reachable: set GOTIFACTS_ADMIN_USERS and GOTIFACTS_TRUSTED_PROXIES, or create an admin key via the CLI"))
+	}
+	if c.MCPEnabled {
+		// The MCP OAuth consent step is browser-based and authenticated by the
+		// forward-auth proxy; without a trusted proxy and a non-empty consent
+		// allowlist, nobody could ever authorize a connector.
+		if len(c.TrustedProxies) == 0 {
+			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_ENABLED requires GOTIFACTS_TRUSTED_PROXIES for the forward-auth consent step"))
+		}
+		if len(c.MCPAllowedUsers) == 0 && len(c.AdminUsers) == 0 {
+			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_ENABLED requires GOTIFACTS_MCP_ALLOWED_USERS or GOTIFACTS_ADMIN_USERS to gate consent"))
+		}
+		if c.MCPGroup == "" {
+			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_GROUP must not be empty when MCP is enabled"))
+		}
+		if c.MCPAccessTokenTTL <= 0 || c.MCPRefreshTokenTTL <= 0 {
+			errs = append(errs, fmt.Errorf("GOTIFACTS_MCP_TOKEN_TTL and GOTIFACTS_MCP_REFRESH_TTL must be positive"))
+		}
 	}
 	return errs
 }
@@ -230,4 +294,16 @@ func envBool(key string, def bool) (bool, error) {
 		return false, fmt.Errorf("%s: %w", key, err)
 	}
 	return b, nil
+}
+
+func envDuration(key string, def time.Duration) (time.Duration, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return d, nil
 }
