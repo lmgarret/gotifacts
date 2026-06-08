@@ -17,6 +17,10 @@ services:
       GOTIFACTS_VERSIONING_ENABLED: ${GOTIFACTS_VERSIONING_ENABLED:-false}
       GOTIFACTS_VERSIONING_KEEP: ${GOTIFACTS_VERSIONING_KEEP:-5}
       GOTIFACTS_MAX_UPLOAD_BYTES: ${GOTIFACTS_MAX_UPLOAD_BYTES:-67108864}
+    tmpfs:
+      # Gotifacts image is based on scratch and does not have any /tmp
+      # We need it to ingest sites
+      - /tmp:size=64m,mode=1777
     volumes:
       - gotifacts-data:/data
     # Bind only to the internal network shared with your proxy. Do NOT expose
