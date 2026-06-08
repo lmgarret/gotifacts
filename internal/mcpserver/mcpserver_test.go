@@ -98,8 +98,9 @@ func TestHelpers(t *testing.T) {
 	}
 
 	rl := newRateLimiter(2, time.Minute)
-	if !rl.allow() || !rl.allow() || rl.allow() {
-		t.Fatal("rate limiter did not cap at 2")
+	first, second, third := rl.allow(), rl.allow(), rl.allow()
+	if !first || !second || third {
+		t.Fatalf("rate limiter did not cap at 2: %v %v %v", first, second, third)
 	}
 }
 
@@ -132,7 +133,7 @@ func TestMCPRequiresBearer(t *testing.T) {
 	srv := httptest.NewServer(s.testHandler(&auth.Principal{User: "tester"}))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/mcp")
+	resp, err := http.DefaultClient.Do(ctxReq(t, http.MethodGet, srv.URL+"/mcp", nil, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +175,7 @@ func TestOAuthFlow(t *testing.T) {
 		"code_challenge_method": {"S256"},
 		"state":                 {"xyz"},
 	}.Encode()
-	if resp, err := http.Get(authURL); err != nil {
+	if resp, err := http.DefaultClient.Do(ctxReq(t, http.MethodGet, authURL, nil, "")); err != nil {
 		t.Fatal(err)
 	} else {
 		_ = resp.Body.Close()
@@ -192,7 +193,8 @@ func TestOAuthFlow(t *testing.T) {
 		"csrf":                  {s.csrfToken("tester")},
 		"action":                {"approve"},
 	}
-	resp, err := noRedirect.PostForm(srv.URL+"/mcp/oauth/authorize", form)
+	resp, err := noRedirect.Do(ctxReq(t, http.MethodPost, srv.URL+"/mcp/oauth/authorize",
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,17 +287,33 @@ func TestPublishSiteTool(t *testing.T) {
 	}
 }
 
+// ctxReq builds a request carrying a context (satisfies the noctx linter, which
+// forbids the context-less http.Get/Post/PostForm helpers).
+func ctxReq(t *testing.T, method, url string, body io.Reader, contentType string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), method, url, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	return req
+}
+
 // tryReuse attempts to exchange an already-consumed code; returns true if it
 // unexpectedly succeeds.
 func tryReuse(t *testing.T, base, clientID, redirectURI, code string) bool {
 	t.Helper()
-	resp, err := http.PostForm(base+"/mcp/oauth/token", url.Values{
+	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"redirect_uri":  {redirectURI},
 		"client_id":     {clientID},
 		"code_verifier": {"this-is-a-sufficiently-long-pkce-code-verifier-1234567890"},
-	})
+	}
+	resp, err := http.DefaultClient.Do(ctxReq(t, http.MethodPost, base+"/mcp/oauth/token",
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +323,7 @@ func tryReuse(t *testing.T, base, clientID, redirectURI, code string) bool {
 
 func getJSON(t *testing.T, url string, dst any) {
 	t.Helper()
-	resp, err := http.Get(url)
+	resp, err := http.DefaultClient.Do(ctxReq(t, http.MethodGet, url, nil, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +339,8 @@ func getJSON(t *testing.T, url string, dst any) {
 func postJSON(t *testing.T, url string, body, dst any) {
 	t.Helper()
 	b, _ := json.Marshal(body)
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(b)))
+	resp, err := http.DefaultClient.Do(ctxReq(t, http.MethodPost, url,
+		strings.NewReader(string(b)), "application/json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +356,8 @@ func postJSON(t *testing.T, url string, body, dst any) {
 
 func postForm(t *testing.T, url string, form url.Values, dst any) {
 	t.Helper()
-	resp, err := http.PostForm(url, form)
+	resp, err := http.DefaultClient.Do(ctxReq(t, http.MethodPost, url,
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded"))
 	if err != nil {
 		t.Fatal(err)
 	}
