@@ -1,6 +1,7 @@
 -- 0002: Replace the coarse scope/group_restriction model with GitHub-style
 -- per-key grants plus an admin flag. A grant targets either a group subtree or a
--- single site, and carries a set of capabilities.
+-- single site, and carries a set of capabilities. Keys also gain an optional
+-- expiry (NULL = never expires).
 --
 -- Backward compatibility: API tokens are stored only as hashes and are never
 -- regenerated. This migration backfills equivalent grants from each existing
@@ -8,6 +9,9 @@
 -- it had before.
 
 ALTER TABLE api_keys ADD COLUMN admin INTEGER NOT NULL DEFAULT 0;
+
+-- Optional key expiration. NULL means the key never expires.
+ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
 
 CREATE TABLE api_key_grants (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
