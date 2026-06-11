@@ -9,6 +9,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -20,7 +21,8 @@ var migrationsFS embed.FS
 
 // Store wraps a SQLite database connection.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	log *slog.Logger
 }
 
 // Open opens (creating if needed) the SQLite database at path, configures
@@ -37,12 +39,20 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, log: slog.Default()}
 	if err := s.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
+}
+
+// SetLogger sets the logger used for diagnostics (e.g. malformed stored data).
+// A nil logger is ignored, leaving the default in place.
+func (s *Store) SetLogger(l *slog.Logger) {
+	if l != nil {
+		s.log = l
+	}
 }
 
 // Close closes the underlying database.

@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,6 +45,91 @@ func mintKey(t *testing.T, st *store.Store, admin bool, grants []store.Grant) st
 		t.Fatal(err)
 	}
 	return tok
+}
+
+// publishMultipart builds a minimal, well-formed publish body (a meta JSON part
+// plus a single-HTML index part) targeting the given group/slug, so a publish
+// request reaches the capability check rather than failing to parse.
+func publishMultipart(t *testing.T, group, slug string) (io.Reader, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	metaPart, err := mw.CreateFormField("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewEncoder(metaPart).Encode(map[string]any{"group": group, "slug": slug, "title": "t"}); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := mw.CreateFormField("index")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idx.Write([]byte("<!doctype html><title>x</title><h1>hi</h1>")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &buf, mw.FormDataContentType()
+}
+
+// TestIngestRoutesRequireMatchingGrant locks the invariant that every /ingest/*
+// route enforces a per-(group,slug) capability check: a valid, non-expired key
+// that holds no grant matching the target must be rejected with 403, never 2xx.
+// This is the structural safety net for capability enforcement living inside the
+// handlers — a future route that forgets its p.Can check will fail this test.
+func TestIngestRoutesRequireMatchingGrant(t *testing.T) {
+	srv, st := testServer(t)
+	h := srv.Handler()
+
+	// A key with EVERY capability, but only on an unrelated group. It therefore
+	// has zero grants relevant to the "mine/app" target below.
+	tok := mintKey(t, st, false, []store.Grant{{
+		Kind:        store.GrantGroup,
+		Target:      "elsewhere",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish, keys.CapRollback, keys.CapPatch},
+	}})
+
+	pubBody, pubCT := publishMultipart(t, "mine", "app")
+	routes := []struct {
+		name, method, target, ctype string
+		body                        io.Reader
+	}{
+		{"publish", http.MethodPost, "http://example.com/ingest/sites", pubCT, pubBody},
+		{"unpublish", http.MethodDelete, "http://example.com/ingest/sites/mine/app", "", nil},
+		{"patch", http.MethodPatch, "http://example.com/ingest/sites/mine/app", "", nil},
+		{"rollback", http.MethodPost, "http://example.com/ingest/sites/mine/app/rollback", "", nil},
+	}
+	for _, rt := range routes {
+		t.Run(rt.name, func(t *testing.T) {
+			r := httptest.NewRequestWithContext(context.Background(), rt.method, rt.target, rt.body)
+			if rt.ctype != "" {
+				r.Header.Set("Content-Type", rt.ctype)
+			}
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("%s with an unrelated-grant key: got %d, want 403", rt.name, w.Code)
+			}
+		})
+	}
+
+	// Positive control: a key scoped to the target passes the gate (proving the
+	// 403s above are capability-specific, not an unrelated structural reject).
+	okTok := mintKey(t, st, false, []store.Grant{{
+		Kind: store.GrantGroup, Target: "mine", Permissions: []keys.Capability{keys.CapPublish},
+	}})
+	okBody, okCT := publishMultipart(t, "mine", "ok")
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", okBody)
+	r.Header.Set("Content-Type", okCT)
+	r.Header.Set("Authorization", "Bearer "+okTok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code == http.StatusForbidden {
+		t.Fatal("a key scoped to the target must pass the capability gate, got 403")
+	}
 }
 
 // reqStatus issues an authenticated request and returns the response status.
