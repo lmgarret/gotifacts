@@ -134,6 +134,8 @@ API keys:
 
 - Token format `gtf_<base64url-32B>`, shown in plaintext **once** at creation.
 - Only the **SHA-256 hash** is stored; lookups are constant-time.
+- Optionally **expire**: a key may carry an expiry instant (or never expire, the
+  default); once past it, the key is rejected like an unknown token.
 - Mint them in the portal (**API Keys** view, admin only) or via the CLI:
 
   ```sh
@@ -142,6 +144,9 @@ API keys:
 
   # A key confined to a single site:
   gotifacts keys create --name docs-bot --grant-site "docs/app:publish,patch"
+
+  # An expiring key (also: --expires-at 2026-12-31):
+  gotifacts keys create --name temp --grant "docs:publish" --expires-in 720h
 
   # Multiple grants, a global grant, and an admin key:
   gotifacts keys create --name release --grant "claude:publish" --grant ":unpublish"
@@ -175,7 +180,7 @@ proxy, and create keys in the UI (the CLI is the headless fallback).
 | `DELETE /api/sites/{group…}/{slug}` | admin | Delete site + files |
 | `POST /api/sites/{group…}/{slug}/rollback` | admin | Restore the latest archived version |
 | `GET /api/keys` | admin | List keys (no plaintext) |
-| `POST /api/keys` | admin | `{name, admin?, grants:[{kind:"group"\|"site", target, permissions:[…]}]}` → `201 {id, name, admin, grants, key}` (plaintext **once**). Legacy `{name, scope, group?}` is still accepted. |
+| `POST /api/keys` | admin | `{name, admin?, grants:[{kind:"group"\|"site", target, permissions:[…]}], expires_at?}` (`expires_at` is RFC3339 or `YYYY-MM-DD`) → `201 {id, name, admin, grants, expires_at, key}` (plaintext **once**). Legacy `{name, scope, group?}` is still accepted. |
 | `DELETE /api/keys/{id}` | admin | Revoke a key |
 
 ### Ingest plane — `/ingest/*` (API key)

@@ -38,7 +38,7 @@ func mintKey(t *testing.T, st *store.Store, admin bool, grants []store.Grant) st
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateKey(context.Background(), "k", admin, grants, hash); err != nil {
+	if _, err := st.CreateKey(context.Background(), "k", admin, grants, nil, hash); err != nil {
 		t.Fatal(err)
 	}
 	return tok

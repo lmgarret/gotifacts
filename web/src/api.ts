@@ -55,6 +55,8 @@ export interface ApiKey {
   grants: Grant[];
   created_at: string;
   last_used_at?: string;
+  // RFC3339 instant; absent means the key never expires.
+  expires_at?: string;
 }
 
 export interface CreatedKey extends ApiKey {
@@ -65,6 +67,8 @@ export interface CreateKeyBody {
   name: string;
   admin: boolean;
   grants: Grant[];
+  // RFC3339 or YYYY-MM-DD; omit/empty for no expiration.
+  expires_at?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

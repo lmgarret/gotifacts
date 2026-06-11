@@ -71,6 +71,7 @@ export function KeysView() {
             <th>Access</th>
             <th>Created</th>
             <th>Last used</th>
+            <th>Expires</th>
             <th />
           </tr>
         </thead>
@@ -102,6 +103,15 @@ export function KeysView() {
               <td>{new Date(k.created_at).toLocaleDateString()}</td>
               <td>{k.last_used_at ? new Date(k.last_used_at).toLocaleString() : "never"}</td>
               <td>
+                {!k.expires_at ? (
+                  <span className="muted">never</span>
+                ) : new Date(k.expires_at) < new Date() ? (
+                  <span className="tag warn">expired</span>
+                ) : (
+                  new Date(k.expires_at).toLocaleDateString()
+                )}
+              </td>
+              <td>
                 <button className="danger small" onClick={() => revoke(k.id)}>
                   Revoke
                 </button>
@@ -110,7 +120,7 @@ export function KeysView() {
           ))}
           {keys.length === 0 && (
             <tr>
-              <td colSpan={5} className="muted">
+              <td colSpan={6} className="muted">
                 No keys yet.
               </td>
             </tr>

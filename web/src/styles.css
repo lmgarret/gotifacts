@@ -587,6 +587,51 @@ button.ghost {
   border: 1px solid var(--border);
 }
 
+/* Token reveal (shown once, with copy) */
+.key-reveal h2 {
+  margin-top: 0;
+}
+
+.token-row {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.token-field {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+
+.copy-btn {
+  flex: 0 0 auto;
+  min-width: 5.5rem;
+}
+.copy-btn.copied {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+}
+
+.reveal-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 1rem;
+  font-size: 0.9rem;
+  margin: 1rem 0;
+}
+.reveal-meta dt {
+  color: var(--muted);
+}
+.reveal-meta dd {
+  margin: 0;
+}
+
 /* Target combobox (group/site selector) */
 .target-select {
   display: flex;

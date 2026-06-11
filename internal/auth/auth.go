@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/keys"
@@ -141,6 +142,9 @@ func (a *Authenticator) APIKey(ctx context.Context, r *http.Request) *Principal 
 	}
 	rec, err := a.store.FindKeyByHash(ctx, keys.Hash(token))
 	if err != nil {
+		return nil
+	}
+	if rec.Expired(time.Now()) {
 		return nil
 	}
 	a.store.TouchKey(ctx, rec.ID)

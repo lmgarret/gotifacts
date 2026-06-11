@@ -185,7 +185,7 @@ func TestKeyLifecycle(t *testing.T) {
 		{Kind: GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish}},
 		{Kind: GrantSite, Target: "docs/app", Permissions: []keys.Capability{keys.CapPatch}},
 	}
-	rec, err := st.CreateKey(ctx, "ci", false, grants, hash)
+	rec, err := st.CreateKey(ctx, "ci", false, grants, nil, hash)
 	if err != nil {
 		t.Fatal(err)
 	}

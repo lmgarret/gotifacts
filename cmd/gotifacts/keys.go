@@ -52,11 +52,18 @@ func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 	var groupSpecs, siteSpecs specList
 	fs.Var(&groupSpecs, "grant", "group grant 'group:cap1,cap2' (repeatable); empty group = all sites; caps: publish,unpublish,rollback,patch")
 	fs.Var(&siteSpecs, "grant-site", "site grant 'group/slug:cap1,cap2' (repeatable); confined to that one site")
+	expiresIn := fs.Duration("expires-in", 0, "expire the key after this duration (e.g. 720h); 0 = never")
+	expiresAt := fs.String("expires-at", "", "expire the key at this RFC3339/YYYY-MM-DD instant; overrides --expires-in")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *name == "" {
 		return fmt.Errorf("--name is required")
+	}
+
+	expiry, err := resolveExpiry(*expiresIn, *expiresAt)
+	if err != nil {
+		return err
 	}
 
 	grants, err := parseGrantSpecs(groupSpecs, store.GrantGroup)
@@ -76,7 +83,7 @@ func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 	if err != nil {
 		return err
 	}
-	rec, err := st.CreateKey(ctx, *name, *admin, grants, hash)
+	rec, err := st.CreateKey(ctx, *name, *admin, grants, expiry, hash)
 	if err != nil {
 		return err
 	}
@@ -87,6 +94,9 @@ func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 		for _, g := range rec.Grants {
 			fmt.Printf("\n  grant: %s -> %s", describeTarget(g), keys.JoinCapabilities(g.Permissions))
 		}
+	}
+	if rec.ExpiresAt != nil {
+		fmt.Printf("\n  expires: %s", rec.ExpiresAt.Format(time.RFC3339))
 	}
 	fmt.Printf("\n\n  %s\n\nThis token is shown only once. Store it securely.\n", token)
 	return nil
@@ -156,6 +166,37 @@ func normalizeSitePath(path string) (string, error) {
 	return sp.Dir(), nil
 }
 
+// resolveExpiry turns the --expires-in/--expires-at flags into an instant.
+// --expires-at (RFC3339 or YYYY-MM-DD) wins; otherwise a non-zero duration is
+// added to now. The result must be in the future.
+func resolveExpiry(in time.Duration, at string) (*time.Time, error) {
+	at = strings.TrimSpace(at)
+	if at != "" {
+		var t time.Time
+		var err error
+		if len(at) == len("2006-01-02") {
+			t, err = time.Parse("2006-01-02", at)
+			if err == nil {
+				t = t.Add(24*time.Hour - time.Second)
+			}
+		} else {
+			t, err = time.Parse(time.RFC3339, at)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("--expires-at must be RFC3339 or YYYY-MM-DD")
+		}
+		if !t.After(time.Now()) {
+			return nil, fmt.Errorf("--expires-at must be in the future")
+		}
+		return &t, nil
+	}
+	if in > 0 {
+		t := time.Now().Add(in)
+		return &t, nil
+	}
+	return nil, nil
+}
+
 // validateKeyShape mirrors the server-side key-level invariants.
 func validateKeyShape(admin bool, grants []store.Grant) error {
 	if admin {
@@ -187,13 +228,21 @@ func keysList(ctx context.Context, st *store.Store) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "ID\tNAME\tACCESS\tCREATED\tLAST USED")
+	_, _ = fmt.Fprintln(tw, "ID\tNAME\tACCESS\tCREATED\tLAST USED\tEXPIRES")
+	now := time.Now()
 	for _, k := range ks {
 		last := "never"
 		if k.LastUsedAt != nil {
 			last = k.LastUsedAt.Format(time.RFC3339)
 		}
-		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", k.ID, k.Name, describeAccess(k), k.CreatedAt.Format(time.RFC3339), last)
+		expires := "never"
+		if k.ExpiresAt != nil {
+			expires = k.ExpiresAt.Format(time.RFC3339)
+			if k.Expired(now) {
+				expires += " (expired)"
+			}
+		}
+		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, describeAccess(k), k.CreatedAt.Format(time.RFC3339), last, expires)
 	}
 	return tw.Flush()
 }

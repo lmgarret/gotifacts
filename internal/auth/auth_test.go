@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/keys"
@@ -103,7 +104,7 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 		Target:      "claude",
 		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
 	}}
-	if _, err := st.CreateKey(context.Background(), "ci", false, grants, hash); err != nil {
+	if _, err := st.CreateKey(context.Background(), "ci", false, grants, nil, hash); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +146,7 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 		Kind:        store.GrantSite,
 		Target:      "docs/app",
 		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
-	}}, hashS)
+	}}, nil, hashS)
 	rS := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
 	rS.Header.Set("Authorization", "Bearer "+tokS)
 	ps := a.APIKey(context.Background(), rS)
@@ -163,9 +164,32 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 		t.Fatal("bogus token must not authenticate")
 	}
 
+	// An expired key is rejected even though it is otherwise valid.
+	tokE, hashE, _ := keys.Generate()
+	past := time.Now().Add(-time.Hour)
+	_, _ = st.CreateKey(context.Background(), "expired", false,
+		[]store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}},
+		&past, hashE)
+	rE := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
+	rE.Header.Set("Authorization", "Bearer "+tokE)
+	if a.APIKey(context.Background(), rE) != nil {
+		t.Fatal("expired key must not authenticate")
+	}
+	// A future expiry still authenticates.
+	tokF, hashF, _ := keys.Generate()
+	future := time.Now().Add(time.Hour)
+	_, _ = st.CreateKey(context.Background(), "future", false,
+		[]store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}},
+		&future, hashF)
+	rF := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
+	rF.Header.Set("Authorization", "Bearer "+tokF)
+	if a.APIKey(context.Background(), rF) == nil {
+		t.Fatal("unexpired key should authenticate")
+	}
+
 	// An admin key holds every capability everywhere.
 	tokA, hashA, _ := keys.Generate()
-	_, _ = st.CreateKey(context.Background(), "admin", true, nil, hashA)
+	_, _ = st.CreateKey(context.Background(), "admin", true, nil, nil, hashA)
 	rA := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
 	rA.Header.Set("Authorization", "Bearer "+tokA)
 	pa := a.APIKey(context.Background(), rA)

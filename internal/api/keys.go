@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/keys"
@@ -33,6 +34,9 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth
 			Target      string   `json:"target"`
 			Permissions []string `json:"permissions"`
 		} `json:"grants"`
+		// ExpiresAt is an optional RFC3339 (or YYYY-MM-DD) instant; omit/empty for
+		// a key that never expires.
+		ExpiresAt string `json:"expires_at"`
 		// Legacy fields, accepted for backward compatibility with older clients.
 		Scope string `json:"scope"`
 		Group string `json:"group"`
@@ -44,6 +48,12 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth
 	body.Name = strings.TrimSpace(body.Name)
 	if body.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	expiresAt, err := parseExpiry(body.ExpiresAt)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -92,19 +102,47 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth
 		writeError(w, http.StatusInternalServerError, "failed to generate key")
 		return
 	}
-	rec, err := s.store.CreateKey(r.Context(), body.Name, admin, grants, hash)
+	rec, err := s.store.CreateKey(r.Context(), body.Name, admin, grants, expiresAt, hash)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create key")
 		return
 	}
 	// Plaintext token is returned exactly once.
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":     rec.ID,
-		"name":   rec.Name,
-		"admin":  rec.Admin,
-		"grants": rec.Grants,
-		"key":    token,
+		"id":         rec.ID,
+		"name":       rec.Name,
+		"admin":      rec.Admin,
+		"grants":     rec.Grants,
+		"expires_at": rec.ExpiresAt,
+		"key":        token,
 	})
+}
+
+// parseExpiry parses an optional expiry instant. It accepts RFC3339 or a
+// date-only YYYY-MM-DD (interpreted as end of that UTC day). An empty string
+// means "never". The instant must be in the future.
+func parseExpiry(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	var t time.Time
+	var err error
+	if len(s) == len("2006-01-02") {
+		t, err = time.Parse("2006-01-02", s)
+		if err == nil {
+			t = t.Add(24*time.Hour - time.Second) // end of that day, UTC
+		}
+	} else {
+		t, err = time.Parse(time.RFC3339, s)
+	}
+	if err != nil {
+		return nil, errors.New("expires_at must be RFC3339 or YYYY-MM-DD")
+	}
+	if !t.After(time.Now()) {
+		return nil, errors.New("expires_at must be in the future")
+	}
+	return &t, nil
 }
 
 // parseGrantCapabilities validates a capability string slice.

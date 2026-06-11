@@ -44,11 +44,18 @@ type APIKey struct {
 	Grants     []Grant    `json:"grants"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+}
+
+// Expired reports whether the key has an expiry that is now in the past.
+func (k *APIKey) Expired(now time.Time) bool {
+	return k.ExpiresAt != nil && now.After(*k.ExpiresAt)
 }
 
 // CreateKey inserts a key record (and its grants) given its precomputed hash.
-// Admin keys carry no grants; their privilege is unconditional.
-func (s *Store) CreateKey(ctx context.Context, name string, admin bool, grants []Grant, hash string) (*APIKey, error) {
+// Admin keys carry no grants; their privilege is unconditional. A nil expiresAt
+// means the key never expires.
+func (s *Store) CreateKey(ctx context.Context, name string, admin bool, grants []Grant, expiresAt *time.Time, hash string) (*APIKey, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -59,9 +66,13 @@ func (s *Store) CreateKey(ctx context.Context, name string, admin bool, grants [
 	if admin {
 		adminInt = 1
 	}
+	var exp any
+	if expiresAt != nil {
+		exp = expiresAt.UTC().Format(time.RFC3339Nano)
+	}
 	res, err := tx.ExecContext(ctx, `
-        INSERT INTO api_keys (name, key_hash, admin, created_at)
-        VALUES (?, ?, ?, ?)`, name, hash, adminInt, now())
+        INSERT INTO api_keys (name, key_hash, admin, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?)`, name, hash, adminInt, now(), exp)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +99,7 @@ func (s *Store) CreateKey(ctx context.Context, name string, admin bool, grants [
 // GetKey returns the key with the given id or ErrNotFound.
 func (s *Store) GetKey(ctx context.Context, id int64) (*APIKey, error) {
 	row := s.db.QueryRowContext(ctx, `
-        SELECT id, name, admin, created_at, last_used_at
+        SELECT id, name, admin, created_at, last_used_at, expires_at
         FROM api_keys WHERE id=?`, id)
 	k, err := scanKey(row)
 	if err != nil {
@@ -105,7 +116,7 @@ func (s *Store) GetKey(ctx context.Context, id int64) (*APIKey, error) {
 // per-request basis). Returns ErrNotFound if absent.
 func (s *Store) FindKeyByHash(ctx context.Context, hash string) (*APIKey, error) {
 	row := s.db.QueryRowContext(ctx, `
-        SELECT id, name, admin, created_at, last_used_at
+        SELECT id, name, admin, created_at, last_used_at, expires_at
         FROM api_keys WHERE key_hash=?`, hash)
 	k, err := scanKey(row)
 	if err != nil {
@@ -145,7 +156,7 @@ func (s *Store) TouchKey(ctx context.Context, id int64) {
 // ListKeys returns all key records ordered by creation time.
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	rows, err := s.db.QueryContext(ctx, `
-        SELECT id, name, admin, created_at, last_used_at
+        SELECT id, name, admin, created_at, last_used_at, expires_at
         FROM api_keys ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
@@ -189,8 +200,9 @@ func scanKey(row scanner) (*APIKey, error) {
 		admin   int
 		created string
 		last    sql.NullString
+		expires sql.NullString
 	)
-	err := row.Scan(&k.ID, &k.Name, &admin, &created, &last)
+	err := row.Scan(&k.ID, &k.Name, &admin, &created, &last, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -202,6 +214,10 @@ func scanKey(row scanner) (*APIKey, error) {
 	if last.Valid {
 		t := parseTime(last.String)
 		k.LastUsedAt = &t
+	}
+	if expires.Valid {
+		t := parseTime(expires.String)
+		k.ExpiresAt = &t
 	}
 	return &k, nil
 }
