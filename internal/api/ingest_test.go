@@ -47,7 +47,7 @@ func mintKey(t *testing.T, st *store.Store, admin bool, grants []store.Grant) st
 // reqStatus issues an authenticated request and returns the response status.
 func reqStatus(t *testing.T, h http.Handler, method, target, token string) int {
 	t.Helper()
-	r := httptest.NewRequest(method, target, nil)
+	r := httptest.NewRequestWithContext(context.Background(), method, target, nil)
 	r.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
@@ -87,7 +87,7 @@ func TestIngestCapabilityGating(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var got int
 			if c.token == "" {
-				r := httptest.NewRequest(c.method, c.target, nil)
+				r := httptest.NewRequestWithContext(context.Background(), c.method, c.target, nil)
 				w := httptest.NewRecorder()
 				h.ServeHTTP(w, r)
 				got = w.Code

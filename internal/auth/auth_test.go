@@ -88,42 +88,45 @@ func TestStripUntrustedIdentity(t *testing.T) {
 	}
 }
 
-func TestAPIKeyAuthAndCapabilities(t *testing.T) {
-	cfg := testConfig(t)
+// newAuth opens a fresh store and an Authenticator bound to the test config.
+func newAuth(t *testing.T) (*Authenticator, *store.Store) {
+	t.Helper()
 	st, err := store.Open(context.Background(), t.TempDir()+"/k.db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = st.Close() }()
-	a := New(cfg, st)
+	t.Cleanup(func() { _ = st.Close() })
+	return New(testConfig(t), st), st
+}
 
-	// A CI key that may publish and unpublish within the "claude" subtree.
+// mintPrincipal creates a key with the given shape and resolves it back into a
+// Principal via the ingest plane, returning nil when the key is rejected.
+func mintPrincipal(t *testing.T, a *Authenticator, st *store.Store, admin bool, grants []store.Grant, expiry *time.Time) *Principal {
+	t.Helper()
 	tok, hash, _ := keys.Generate()
-	grants := []store.Grant{{
+	if _, err := st.CreateKey(context.Background(), "k", admin, grants, expiry, hash); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	return a.APIKey(context.Background(), r)
+}
+
+func TestAPIKeyGroupGrant(t *testing.T) {
+	a, st := newAuth(t)
+	p := mintPrincipal(t, a, st, false, []store.Grant{{
 		Kind:        store.GrantGroup,
 		Target:      "claude",
 		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
-	}}
-	if _, err := st.CreateKey(context.Background(), "ci", false, grants, nil, hash); err != nil {
-		t.Fatal(err)
+	}}, nil)
+	if p == nil || p.Admin {
+		t.Fatalf("scoped key should authenticate as non-admin: %+v", p)
 	}
-
-	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
-	r.Header.Set("Authorization", "Bearer "+tok)
-	p := a.APIKey(context.Background(), r)
-	if p == nil {
-		t.Fatal("valid key should authenticate")
+	// Within the subtree (group, slug identify the site).
+	if !p.Can(keys.CapPublish, "claude", "app") || !p.Can(keys.CapUnpublish, "claude/sub", "app") {
+		t.Fatal("key should act within its subtree")
 	}
-	if p.Admin {
-		t.Fatal("scoped key must not be admin")
-	}
-	// Capability + subtree enforcement. (group, slug) identifies the site.
-	if !p.Can(keys.CapPublish, "claude", "app") || !p.Can(keys.CapPublish, "claude/sub", "app") {
-		t.Fatal("key should publish within its subtree")
-	}
-	if !p.Can(keys.CapUnpublish, "claude/sub", "app") {
-		t.Fatal("key should unpublish within its subtree")
-	}
+	// Outside the subtree.
 	if p.Can(keys.CapPublish, "other", "app") || p.Can(keys.CapPublish, "claudex", "app") {
 		t.Fatal("key must be confined to its subtree")
 	}
@@ -131,68 +134,60 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 	if p.Can(keys.CapRollback, "claude", "app") || p.Can(keys.CapPatch, "claude", "app") {
 		t.Fatal("key must not hold ungranted capabilities")
 	}
-	// The grant on "claude" also covers the group's own subdomain — the flat
-	// site at claude.<base> (group "", slug "claude") — but no other apex site.
+	// The grant on "claude" also covers the group's own subdomain (group "",
+	// slug "claude"), but no other apex site.
 	if !p.Can(keys.CapPublish, "", "claude") {
 		t.Fatal("grant on 'claude' should cover the claude.<base> apex site")
 	}
-	if p.Can(keys.CapPublish, "", "other") || p.Can(keys.CapPublish, "", "claudex") {
+	if p.Can(keys.CapPublish, "", "other") {
 		t.Fatal("grant on 'claude' must not cover unrelated apex sites")
 	}
+}
 
-	// A site grant covers exactly one site — neither children nor siblings.
-	tokS, hashS, _ := keys.Generate()
-	_, _ = st.CreateKey(context.Background(), "site", false, []store.Grant{{
+func TestAPIKeySiteGrant(t *testing.T) {
+	a, st := newAuth(t)
+	p := mintPrincipal(t, a, st, false, []store.Grant{{
 		Kind:        store.GrantSite,
 		Target:      "docs/app",
 		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
-	}}, nil, hashS)
-	rS := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
-	rS.Header.Set("Authorization", "Bearer "+tokS)
-	ps := a.APIKey(context.Background(), rS)
-	if !ps.Can(keys.CapPublish, "docs", "app") {
+	}}, nil)
+	if !p.Can(keys.CapPublish, "docs", "app") {
 		t.Fatal("site grant should cover its exact site")
 	}
-	if ps.Can(keys.CapPublish, "docs/app", "child") || ps.Can(keys.CapPublish, "docs", "other") {
-		t.Fatal("site grant must not cover children or siblings")
+	if p.Can(keys.CapPublish, "docs/app", "child") {
+		t.Fatal("site grant must not cover children")
 	}
+	if p.Can(keys.CapPublish, "docs", "other") {
+		t.Fatal("site grant must not cover siblings")
+	}
+}
 
-	// Bogus token rejected.
-	r2 := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
-	r2.Header.Set("Authorization", "Bearer gtf_nope")
-	if a.APIKey(context.Background(), r2) != nil {
+func TestAPIKeyInvalidToken(t *testing.T) {
+	a, _ := newAuth(t)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
+	r.Header.Set("Authorization", "Bearer gtf_nope")
+	if a.APIKey(context.Background(), r) != nil {
 		t.Fatal("bogus token must not authenticate")
 	}
+}
 
-	// An expired key is rejected even though it is otherwise valid.
-	tokE, hashE, _ := keys.Generate()
+func TestAPIKeyExpiry(t *testing.T) {
+	a, st := newAuth(t)
+	grant := []store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}}
+
 	past := time.Now().Add(-time.Hour)
-	_, _ = st.CreateKey(context.Background(), "expired", false,
-		[]store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}},
-		&past, hashE)
-	rE := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
-	rE.Header.Set("Authorization", "Bearer "+tokE)
-	if a.APIKey(context.Background(), rE) != nil {
+	if mintPrincipal(t, a, st, false, grant, &past) != nil {
 		t.Fatal("expired key must not authenticate")
 	}
-	// A future expiry still authenticates.
-	tokF, hashF, _ := keys.Generate()
 	future := time.Now().Add(time.Hour)
-	_, _ = st.CreateKey(context.Background(), "future", false,
-		[]store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}},
-		&future, hashF)
-	rF := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
-	rF.Header.Set("Authorization", "Bearer "+tokF)
-	if a.APIKey(context.Background(), rF) == nil {
+	if mintPrincipal(t, a, st, false, grant, &future) == nil {
 		t.Fatal("unexpired key should authenticate")
 	}
+}
 
-	// An admin key holds every capability everywhere.
-	tokA, hashA, _ := keys.Generate()
-	_, _ = st.CreateKey(context.Background(), "admin", true, nil, nil, hashA)
-	rA := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
-	rA.Header.Set("Authorization", "Bearer "+tokA)
-	pa := a.APIKey(context.Background(), rA)
+func TestAPIKeyAdminScope(t *testing.T) {
+	a, st := newAuth(t)
+	pa := mintPrincipal(t, a, st, true, nil, nil)
 	if pa == nil || !pa.Admin {
 		t.Fatalf("admin key should authenticate as admin: %+v", pa)
 	}

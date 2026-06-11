@@ -45,11 +45,11 @@ type Principal struct {
 	KeyID int64
 }
 
-// Can reports whether the principal holds capability cap on the site identified
+// Can reports whether the principal holds capability c on the site identified
 // by (group, slug). Admin principals are unconditionally allowed. For API-key
-// principals, any grant that includes cap and whose subtree covers the site
+// principals, any grant that includes c and whose subtree covers the site
 // suffices.
-func (p *Principal) Can(cap keys.Capability, group, slug string) bool {
+func (p *Principal) Can(c keys.Capability, group, slug string) bool {
 	if p.Admin {
 		return true
 	}
@@ -57,7 +57,7 @@ func (p *Principal) Can(cap keys.Capability, group, slug string) bool {
 		return false
 	}
 	for _, g := range p.Grants {
-		if keys.HasCapability(g.Permissions, cap) && grantCovers(g, group, slug) {
+		if keys.HasCapability(g.Permissions, c) && grantCovers(g, group, slug) {
 			return true
 		}
 	}
