@@ -87,7 +87,7 @@ func TestStripUntrustedIdentity(t *testing.T) {
 	}
 }
 
-func TestAPIKeyAuthAndScope(t *testing.T) {
+func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 	cfg := testConfig(t)
 	st, err := store.Open(context.Background(), t.TempDir()+"/k.db")
 	if err != nil {
@@ -96,8 +96,13 @@ func TestAPIKeyAuthAndScope(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	a := New(cfg, st)
 
+	// A CI key that may publish and unpublish within the "claude" subtree.
 	tok, hash, _ := keys.Generate()
-	if _, err := st.CreateKey(context.Background(), "ci", keys.ScopePublish, "claude", hash); err != nil {
+	grants := []store.Grant{{
+		Group:       "claude",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
+	}}
+	if _, err := st.CreateKey(context.Background(), "ci", false, grants, hash); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,14 +113,21 @@ func TestAPIKeyAuthAndScope(t *testing.T) {
 		t.Fatal("valid key should authenticate")
 	}
 	if p.Admin {
-		t.Fatal("publish key must not be admin")
+		t.Fatal("scoped key must not be admin")
 	}
-	// Scope enforcement: restricted to "claude" subtree.
-	if !p.CanPublishTo("claude") || !p.CanPublishTo("claude/sub") {
-		t.Fatal("publish key should allow its group subtree")
+	// Capability + subtree enforcement.
+	if !p.Can(keys.CapPublish, "claude") || !p.Can(keys.CapPublish, "claude/sub") {
+		t.Fatal("key should publish within its subtree")
 	}
-	if p.CanPublishTo("other") || p.CanPublishTo("claudex") {
-		t.Fatal("publish key must be confined to its group subtree")
+	if !p.Can(keys.CapUnpublish, "claude/sub") {
+		t.Fatal("key should unpublish within its subtree")
+	}
+	if p.Can(keys.CapPublish, "other") || p.Can(keys.CapPublish, "claudex") {
+		t.Fatal("key must be confined to its subtree")
+	}
+	// Ungranted capabilities are denied even within the subtree.
+	if p.Can(keys.CapRollback, "claude") || p.Can(keys.CapPatch, "claude") {
+		t.Fatal("key must not hold ungranted capabilities")
 	}
 
 	// Bogus token rejected.
@@ -125,14 +137,18 @@ func TestAPIKeyAuthAndScope(t *testing.T) {
 		t.Fatal("bogus token must not authenticate")
 	}
 
-	// Forward-auth header must be ignored on the ingest plane (we never call
-	// ForwardAuth there); confirm an admin key grants publish anywhere.
+	// An admin key holds every capability everywhere.
 	tokA, hashA, _ := keys.Generate()
-	_, _ = st.CreateKey(context.Background(), "admin", keys.ScopeAdmin, "", hashA)
+	_, _ = st.CreateKey(context.Background(), "admin", true, nil, hashA)
 	rA := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
 	rA.Header.Set("Authorization", "Bearer "+tokA)
 	pa := a.APIKey(context.Background(), rA)
-	if pa == nil || !pa.Admin || !pa.CanPublishTo("anywhere") {
-		t.Fatalf("admin key should publish anywhere: %+v", pa)
+	if pa == nil || !pa.Admin {
+		t.Fatalf("admin key should authenticate as admin: %+v", pa)
+	}
+	for _, c := range []keys.Capability{keys.CapPublish, keys.CapUnpublish, keys.CapRollback, keys.CapPatch} {
+		if !pa.Can(c, "anywhere") {
+			t.Fatalf("admin key should hold %s anywhere", c)
+		}
 	}
 }

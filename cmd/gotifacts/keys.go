@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -46,34 +47,89 @@ func runKeys(ctx context.Context, args []string) error {
 func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 	fs := flag.NewFlagSet("keys create", flag.ContinueOnError)
 	name := fs.String("name", "", "human-readable key name (required)")
-	scopeStr := fs.String("scope", "", "key scope: admin | publish (required)")
-	group := fs.String("group", "", "group restriction for publish-scoped keys (optional)")
+	admin := fs.Bool("admin", false, "create a superuser key (full access; no grants)")
+	var grantSpecs grantList
+	fs.Var(&grantSpecs, "grant", "grant in the form 'group:cap1,cap2' (repeatable); caps: publish,unpublish,rollback,patch")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *name == "" {
 		return fmt.Errorf("--name is required")
 	}
-	scope, err := keys.ParseScope(*scopeStr)
+
+	grants, err := grantSpecs.parse()
 	if err != nil {
-		return fmt.Errorf("--scope must be 'admin' or 'publish'")
+		return err
 	}
-	if scope == keys.ScopeAdmin && *group != "" {
-		return fmt.Errorf("--group is only valid for publish scope")
+	if err := validateKeyShape(*admin, grants); err != nil {
+		return err
 	}
+
 	token, hash, err := keys.Generate()
 	if err != nil {
 		return err
 	}
-	rec, err := st.CreateKey(ctx, *name, scope, *group, hash)
+	rec, err := st.CreateKey(ctx, *name, *admin, grants, hash)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Created API key #%d (%s, scope=%s", rec.ID, rec.Name, rec.Scope)
-	if rec.GroupRestriction != "" {
-		fmt.Printf(", group=%s", rec.GroupRestriction)
+	if rec.Admin {
+		fmt.Printf("Created admin API key #%d (%s)", rec.ID, rec.Name)
+	} else {
+		fmt.Printf("Created API key #%d (%s)", rec.ID, rec.Name)
+		for _, g := range rec.Grants {
+			grp := g.Group
+			if grp == "" {
+				grp = "*"
+			}
+			fmt.Printf("\n  grant: %s -> %s", grp, keys.JoinCapabilities(g.Permissions))
+		}
 	}
-	fmt.Printf(")\n\n  %s\n\nThis token is shown only once. Store it securely.\n", token)
+	fmt.Printf("\n\n  %s\n\nThis token is shown only once. Store it securely.\n", token)
+	return nil
+}
+
+// grantList collects repeated --grant flags ("group:cap1,cap2").
+type grantList []string
+
+func (g *grantList) String() string { return strings.Join(*g, " ") }
+func (g *grantList) Set(v string) error {
+	*g = append(*g, v)
+	return nil
+}
+
+func (g grantList) parse() ([]store.Grant, error) {
+	var out []store.Grant
+	for _, spec := range g {
+		group, capsCSV, found := strings.Cut(spec, ":")
+		if !found {
+			return nil, fmt.Errorf("invalid --grant %q (expected 'group:cap1,cap2')", spec)
+		}
+		caps, err := keys.ParseCapabilities(capsCSV)
+		if err != nil {
+			return nil, fmt.Errorf("invalid capabilities in --grant %q: %w", spec, err)
+		}
+		out = append(out, store.Grant{Group: strings.Trim(strings.TrimSpace(group), "/"), Permissions: caps})
+	}
+	return out, nil
+}
+
+// validateKeyShape mirrors the server-side invariants for headless key creation.
+func validateKeyShape(admin bool, grants []store.Grant) error {
+	if admin {
+		if len(grants) > 0 {
+			return fmt.Errorf("--admin keys must not specify --grant")
+		}
+		return nil
+	}
+	if len(grants) == 0 {
+		return fmt.Errorf("specify --admin or at least one --grant")
+	}
+	for _, gr := range grants {
+		if gr.Group == "" && !keys.OnlyPublish(gr.Permissions) {
+			return fmt.Errorf("a grant with unpublish/rollback/patch must specify a group")
+		}
+	}
 	return nil
 }
 
@@ -83,19 +139,34 @@ func keysList(ctx context.Context, st *store.Store) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "ID\tNAME\tSCOPE\tGROUP\tCREATED\tLAST USED")
+	_, _ = fmt.Fprintln(tw, "ID\tNAME\tACCESS\tCREATED\tLAST USED")
 	for _, k := range ks {
 		last := "never"
 		if k.LastUsedAt != nil {
 			last = k.LastUsedAt.Format(time.RFC3339)
 		}
-		grp := k.GroupRestriction
-		if grp == "" {
-			grp = "-"
-		}
-		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, k.Scope, grp, k.CreatedAt.Format(time.RFC3339), last)
+		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", k.ID, k.Name, describeAccess(k), k.CreatedAt.Format(time.RFC3339), last)
 	}
 	return tw.Flush()
+}
+
+// describeAccess renders a key's privilege for the list view.
+func describeAccess(k store.APIKey) string {
+	if k.Admin {
+		return "admin"
+	}
+	if len(k.Grants) == 0 {
+		return "-"
+	}
+	parts := make([]string, len(k.Grants))
+	for i, g := range k.Grants {
+		grp := g.Group
+		if grp == "" {
+			grp = "*"
+		}
+		parts[i] = grp + ":" + keys.JoinCapabilities(g.Permissions)
+	}
+	return strings.Join(parts, " ")
 }
 
 func keysRevoke(ctx context.Context, st *store.Store, args []string) error {

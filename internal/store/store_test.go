@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -104,17 +106,91 @@ func TestListSitesFilters(t *testing.T) {
 	}
 }
 
+// TestLegacyKeyMigration verifies that keys created under the old
+// scope/group_restriction schema keep their exact access after migration 0002:
+// admin keys become superusers, publish keys get an equivalent publish grant.
+func TestLegacyKeyMigration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	_, pubHash, _ := keys.Generate()
+	_, adminHash, _ := keys.Generate()
+
+	// Seed a database at the pre-0002 schema with two legacy keys, and mark only
+	// migration 0001 as applied so Open() runs 0002's backfill against them.
+	func() {
+		db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = db.Close() }()
+		body, err := os.ReadFile("migrations/0001_init.sql")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, string(body)); err != nil {
+			t.Fatalf("apply 0001: %v", err)
+		}
+		if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations VALUES ('migrations/0001_init.sql', ?)`, now()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO api_keys (name, key_hash, scope, group_restriction, created_at) VALUES (?,?,?,?,?)`,
+			"old-publish", pubHash, "publish", "claude", now()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO api_keys (name, key_hash, scope, group_restriction, created_at) VALUES (?,?,?,?,?)`,
+			"old-admin", adminHash, "admin", nil, now()); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Open through the store: migration 0002 should now run and backfill grants.
+	st, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open (migrate): %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	pub, err := st.FindKeyByHash(ctx, pubHash)
+	if err != nil {
+		t.Fatalf("legacy publish key not found post-migration: %v", err)
+	}
+	if pub.Admin {
+		t.Fatal("legacy publish key must not become admin")
+	}
+	if len(pub.Grants) != 1 || pub.Grants[0].Group != "claude" ||
+		!keys.HasCapability(pub.Grants[0].Permissions, keys.CapPublish) {
+		t.Fatalf("legacy publish key got wrong grants: %+v", pub.Grants)
+	}
+
+	adm, err := st.FindKeyByHash(ctx, adminHash)
+	if err != nil {
+		t.Fatalf("legacy admin key not found post-migration: %v", err)
+	}
+	if !adm.Admin || len(adm.Grants) != 0 {
+		t.Fatalf("legacy admin key should be a grant-less superuser: %+v", adm)
+	}
+}
+
 func TestKeyLifecycle(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 
 	tok, hash, _ := keys.Generate()
-	rec, err := st.CreateKey(ctx, "ci", keys.ScopePublish, "claude", hash)
+	grants := []Grant{{Group: "claude", Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish}}}
+	rec, err := st.CreateKey(ctx, "ci", false, grants, hash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.Scope != keys.ScopePublish || rec.GroupRestriction != "claude" {
-		t.Fatalf("unexpected key: %+v", rec)
+	if rec.Admin {
+		t.Fatalf("scoped key must not be admin: %+v", rec)
+	}
+	if len(rec.Grants) != 1 || rec.Grants[0].Group != "claude" || len(rec.Grants[0].Permissions) != 2 {
+		t.Fatalf("unexpected grants: %+v", rec.Grants)
 	}
 
 	found, err := st.FindKeyByHash(ctx, keys.Hash(tok))
@@ -123,6 +199,9 @@ func TestKeyLifecycle(t *testing.T) {
 	}
 	if found.ID != rec.ID {
 		t.Fatal("hash lookup returned wrong key")
+	}
+	if len(found.Grants) != 1 || found.Grants[0].Group != "claude" {
+		t.Fatalf("grants not loaded on lookup: %+v", found.Grants)
 	}
 
 	if _, err := st.FindKeyByHash(ctx, keys.Hash("gtf_bogus")); !errors.Is(err, ErrNotFound) {

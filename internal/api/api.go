@@ -52,9 +52,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/keys", s.requireAdmin(s.handleCreateKey))
 	mux.HandleFunc("DELETE /api/keys/{id}", s.requireAdmin(s.handleDeleteKey))
 
-	// Ingest plane (API-key).
-	mux.HandleFunc("POST /ingest/sites", s.requireKeyPublish(s.handleIngestPublish))
-	mux.HandleFunc("DELETE /ingest/sites/{rest...}", s.requireKeyAdmin(s.handleIngestDelete))
+	// Ingest plane (API-key). Each handler authorizes the specific capability
+	// against the request's group; admin keys pass unconditionally.
+	mux.HandleFunc("POST /ingest/sites", s.requireKey(s.handleIngestPublish))
+	mux.HandleFunc("POST /ingest/sites/{rest...}", s.requireKey(s.handleIngestRollback))
+	mux.HandleFunc("PATCH /ingest/sites/{rest...}", s.requireKey(s.handleIngestPatch))
+	mux.HandleFunc("DELETE /ingest/sites/{rest...}", s.requireKey(s.handleIngestDelete))
 
 	// Everything else on the apex host is the SPA.
 	mux.Handle("/", s.spa)
@@ -93,28 +96,13 @@ func (s *Server) requireAdmin(h handlerFunc) http.HandlerFunc {
 	}
 }
 
-// requireKeyPublish admits API-key principals with publish or admin scope.
-func (s *Server) requireKeyPublish(h handlerFunc) http.HandlerFunc {
+// requireKey admits any valid API-key principal. The specific capability is
+// authorized inside each handler, since it depends on the request's group.
+func (s *Server) requireKey(h handlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := s.authn.APIKey(r.Context(), r)
 		if p == nil {
 			writeError(w, http.StatusUnauthorized, "valid API key required")
-			return
-		}
-		h(w, r, p)
-	}
-}
-
-// requireKeyAdmin admits only admin-scoped API-key principals.
-func (s *Server) requireKeyAdmin(h handlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		p := s.authn.APIKey(r.Context(), r)
-		if p == nil {
-			writeError(w, http.StatusUnauthorized, "valid API key required")
-			return
-		}
-		if !p.Admin {
-			writeError(w, http.StatusForbidden, "admin-scoped key required")
 			return
 		}
 		h(w, r, p)

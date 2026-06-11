@@ -36,14 +36,45 @@ func TestEqualConstantTime(t *testing.T) {
 	}
 }
 
-func TestParseScope(t *testing.T) {
-	if s, err := ParseScope("ADMIN"); err != nil || s != ScopeAdmin {
-		t.Fatalf("admin: %v %v", s, err)
+func TestParseCapability(t *testing.T) {
+	if c, err := ParseCapability("PUBLISH"); err != nil || c != CapPublish {
+		t.Fatalf("publish: %v %v", c, err)
 	}
-	if s, err := ParseScope(" publish "); err != nil || s != ScopePublish {
-		t.Fatalf("publish: %v %v", s, err)
+	if c, err := ParseCapability(" unpublish "); err != nil || c != CapUnpublish {
+		t.Fatalf("unpublish: %v %v", c, err)
 	}
-	if _, err := ParseScope("root"); err == nil {
-		t.Fatal("expected invalid scope error")
+	if _, err := ParseCapability("root"); err == nil {
+		t.Fatal("expected invalid capability error")
+	}
+}
+
+func TestParseCapabilities(t *testing.T) {
+	caps, err := ParseCapabilities("publish, unpublish ,publish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caps) != 2 || !HasCapability(caps, CapPublish) || !HasCapability(caps, CapUnpublish) {
+		t.Fatalf("unexpected dedup result: %v", caps)
+	}
+	if JoinCapabilities(caps) != "publish,unpublish" {
+		t.Fatalf("unexpected join: %q", JoinCapabilities(caps))
+	}
+	if _, err := ParseCapabilities("  ,  "); err == nil {
+		t.Fatal("expected error for empty capability list")
+	}
+	if _, err := ParseCapabilities("publish,bogus"); err == nil {
+		t.Fatal("expected error for invalid capability")
+	}
+}
+
+func TestOnlyPublish(t *testing.T) {
+	if !OnlyPublish([]Capability{CapPublish}) {
+		t.Fatal("publish-only set should report true")
+	}
+	if OnlyPublish([]Capability{CapPublish, CapUnpublish}) {
+		t.Fatal("set with unpublish should report false")
+	}
+	if OnlyPublish(nil) {
+		t.Fatal("empty set should report false")
 	}
 }

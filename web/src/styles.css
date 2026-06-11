@@ -391,9 +391,50 @@ main {
 
 .keyform {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.8rem;
   margin: 1rem 0 1.5rem;
+}
+
+.keyform-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.grants-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.8rem;
+}
+
+.grant-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.grant-row .caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.grant-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.grant-list li {
+  white-space: nowrap;
 }
 
 .newkey {

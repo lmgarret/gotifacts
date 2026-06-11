@@ -36,25 +36,36 @@ type Principal struct {
 	User string
 	// Admin reports full administrative privilege.
 	Admin bool
-	// Scope is set for API-key principals.
-	Scope keys.Scope
-	// GroupRestriction limits publish-scoped keys to a group subtree (may be empty).
-	GroupRestriction string
+	// Grants are the per-group capability grants of an API-key principal.
+	Grants []store.Grant
 	// Source records how the principal authenticated.
 	Source Source
 	// KeyID is the api_keys row id for API-key principals.
 	KeyID int64
 }
 
-// CanPublishTo reports whether the principal may publish to the given group.
-func (p *Principal) CanPublishTo(group string) bool {
+// Can reports whether the principal holds capability cap on the given group.
+// Admin principals are unconditionally allowed. For API-key principals, any
+// grant whose capability set includes cap and whose subtree covers group
+// suffices.
+func (p *Principal) Can(cap keys.Capability, group string) bool {
 	if p.Admin {
 		return true
 	}
-	if p.Source == SourceAPIKey && p.Scope == keys.ScopePublish {
-		return groupAllowed(p.GroupRestriction, group)
+	if p.Source != SourceAPIKey {
+		return false
+	}
+	for _, g := range p.Grants {
+		if keys.HasCapability(g.Permissions, cap) && groupAllowed(g.Group, group) {
+			return true
+		}
 	}
 	return false
+}
+
+// CanPublishTo reports whether the principal may publish to the given group.
+func (p *Principal) CanPublishTo(group string) bool {
+	return p.Can(keys.CapPublish, group)
 }
 
 // groupAllowed reports whether target is within the restriction subtree.
@@ -109,12 +120,11 @@ func (a *Authenticator) APIKey(ctx context.Context, r *http.Request) *Principal 
 	}
 	a.store.TouchKey(ctx, rec.ID)
 	return &Principal{
-		User:             rec.Name,
-		Admin:            rec.Scope == keys.ScopeAdmin,
-		Scope:            rec.Scope,
-		GroupRestriction: rec.GroupRestriction,
-		Source:           SourceAPIKey,
-		KeyID:            rec.ID,
+		User:   rec.Name,
+		Admin:  rec.Admin,
+		Grants: rec.Grants,
+		Source: SourceAPIKey,
+		KeyID:  rec.ID,
 	}
 }
 

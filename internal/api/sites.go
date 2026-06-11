@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/lmgarret/gotifacts/internal/auth"
+	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
 )
 
@@ -59,6 +60,12 @@ func (s *Server) handlePatchSite(w http.ResponseWriter, r *http.Request, _ *auth
 		writeError(w, http.StatusBadRequest, "invalid site path")
 		return
 	}
+	s.patchSite(w, r, sp.Group, sp.Slug)
+}
+
+// patchSite decodes a metadata patch body and applies it to the named site,
+// writing the JSON response. Shared by the management and ingest planes.
+func (s *Server) patchSite(w http.ResponseWriter, r *http.Request, group, slug string) {
 	var body struct {
 		Title       *string   `json:"title"`
 		Description *string   `json:"description"`
@@ -72,7 +79,7 @@ func (s *Server) handlePatchSite(w http.ResponseWriter, r *http.Request, _ *auth
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	site, err := s.store.PatchSite(r.Context(), sp.Group, sp.Slug, store.SitePatch{
+	site, err := s.store.PatchSite(r.Context(), group, slug, store.SitePatch{
 		Title:       body.Title,
 		Description: body.Description,
 		Date:        body.Date,
@@ -114,6 +121,12 @@ func (s *Server) handleRollbackSite(w http.ResponseWriter, r *http.Request, _ *a
 		writeError(w, http.StatusBadRequest, "invalid rollback path")
 		return
 	}
+	s.rollbackSite(w, r, sp)
+}
+
+// rollbackSite restores the named site's previous version and writes the
+// resulting site as JSON. Shared by the management and ingest planes.
+func (s *Server) rollbackSite(w http.ResponseWriter, r *http.Request, sp router.SitePath) {
 	if err := s.pub.Rollback(r.Context(), sp); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

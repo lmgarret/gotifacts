@@ -35,17 +35,32 @@ export interface SitesResponse {
   count: number;
 }
 
+export type Capability = "publish" | "unpublish" | "rollback" | "patch";
+
+export const CAPABILITIES: Capability[] = ["publish", "unpublish", "rollback", "patch"];
+
+export interface Grant {
+  group: string;
+  permissions: Capability[];
+}
+
 export interface ApiKey {
   id: number;
   name: string;
-  scope: "admin" | "publish";
-  group_restriction?: string;
+  admin: boolean;
+  grants: Grant[];
   created_at: string;
   last_used_at?: string;
 }
 
 export interface CreatedKey extends ApiKey {
   key: string;
+}
+
+export interface CreateKeyBody {
+  name: string;
+  admin: boolean;
+  grants: Grant[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -103,10 +118,10 @@ export const api = {
 
   listKeys: () => request<{ keys: ApiKey[] }>("/api/keys"),
 
-  createKey: (name: string, scope: string, group?: string) =>
+  createKey: (body: CreateKeyBody) =>
     request<CreatedKey>("/api/keys", {
       method: "POST",
-      body: JSON.stringify({ name, scope, group: group ?? "" }),
+      body: JSON.stringify(body),
     }),
 
   deleteKey: (id: number) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
