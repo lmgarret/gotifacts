@@ -100,28 +100,72 @@ Rules:
 - A site is identified on publish by `group` (0–2 segments, may be empty) +
   `slug` (the leaf).
 
-## Scopes & API keys
+## Permissions & API keys
+
+Access on the ingest plane is **capability-based**. A key is either an
+**admin** superuser or a set of **grants**, each binding a set of capabilities
+to a target:
+
+| Capability | Allows |
+| --- | --- |
+| `publish` | create/replace sites — `POST /ingest/sites` |
+| `unpublish` | delete sites — `DELETE /ingest/sites` |
+| `rollback` | restore a site's previous version — `POST /ingest/sites/…/rollback` |
+| `patch` | edit site metadata — `PATCH /ingest/sites` |
 
 | Role | Granted by | Can do |
 | --- | --- | --- |
-| **Admin** | forward-auth allowlist **or** an `admin`-scoped key | everything: manage keys, delete/patch/rollback sites, publish anywhere |
-| **Publish** | a `publish`-scoped key | publish only (`POST /ingest/sites`), confined to `group_restriction` if set |
+| **Admin** | forward-auth allowlist **or** an `admin` key | everything: manage keys + all capabilities on every site |
+| **Scoped key** | a key with one or more grants | only the granted capabilities, confined to each grant's target |
 | **Viewer** | any authenticated forward-auth user | view the portal and `GET /api/sites` |
+
+A grant's target is either a **group** or a single **site**:
+
+- A **group** grant on `docs` owns the `docs` subdomain and everything beneath
+  it: `docs.<base>` itself (the flat site group `""`, slug `docs`) **and** every
+  site under `*.docs.<base>` (e.g. `app.docs.<base>` = group `docs`, slug `app`).
+- A **site** grant on `docs/app` is confined to exactly that one site
+  (`app.docs.<base>`) — not its children, not its siblings.
+- A **group** grant with an **empty** target means *all sites* (global). Targets
+  are free-text (each label must match `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`) — you
+  don't pre-register them.
 
 API keys:
 
 - Token format `gtf_<base64url-32B>`, shown in plaintext **once** at creation.
 - Only the **SHA-256 hash** is stored; lookups are constant-time.
+- Optionally **expire**: a key may carry an expiry instant (or never expire, the
+  default); once past it, the key is rejected like an unknown token.
 - Mint them in the portal (**API Keys** view, admin only) or via the CLI:
 
   ```sh
-  gotifacts keys create --name ci --scope publish --group claude
+  # A CI key that can deploy AND tear down PR previews — no admin rights:
+  gotifacts keys create --name ci --grant "previews:publish,unpublish"
+
+  # A key confined to a single site:
+  gotifacts keys create --name docs-bot --grant-site "docs/app:publish,patch"
+
+  # An expiring key (also: --expires-at 2026-12-31):
+  gotifacts keys create --name temp --grant "docs:publish" --expires-in 720h
+
+  # Multiple grants, a global grant, and an admin key:
+  gotifacts keys create --name release --grant "claude:publish" --grant ":unpublish"
+  gotifacts keys create --name root --admin
+
   gotifacts keys list
   gotifacts keys revoke --id 3
   ```
 
+  `--grant "group:caps"` targets a group subtree (empty group = all sites);
+  `--grant-site "group/slug:caps"` targets one exact site.
+
 There is **no bootstrap key**: set `GOTIFACTS_ADMIN_USERS`, log in through your
 proxy, and create keys in the UI (the CLI is the headless fallback).
+
+> **Backward compatibility:** existing tokens keep working unchanged. A
+> migration backfills grants from the old `scope`/`group_restriction` model —
+> old `publish` keys get an equivalent `publish` grant; old `admin` keys become
+> admin superusers.
 
 ## API reference
 
@@ -136,7 +180,7 @@ proxy, and create keys in the UI (the CLI is the headless fallback).
 | `DELETE /api/sites/{group…}/{slug}` | admin | Delete site + files |
 | `POST /api/sites/{group…}/{slug}/rollback` | admin | Restore the latest archived version |
 | `GET /api/keys` | admin | List keys (no plaintext) |
-| `POST /api/keys` | admin | `{name, scope, group?}` → `201 {id, name, scope, group_restriction, key}` (plaintext **once**) |
+| `POST /api/keys` | admin | `{name, admin?, grants:[{kind:"group"\|"site", target, permissions:[…]}], expires_at?}` (`expires_at` is RFC3339 or `YYYY-MM-DD`) → `201 {id, name, admin, grants, expires_at, key}` (plaintext **once**). Legacy `{name, scope, group?}` is still accepted. |
 | `DELETE /api/keys/{id}` | admin | Revoke a key |
 
 ### Ingest plane — `/ingest/*` (API key)
@@ -147,15 +191,16 @@ proxy, and create keys in the UI (the CLI is the headless fallback).
 - **either** `bundle` — a `.tar.gz` containing a top-level `index.html`
 - **or** `index` — a single self-contained HTML document (becomes `index.html`)
 
-Requires `publish` or `admin` scope; `group_restriction` is enforced.
+Requires the `publish` capability on the target group (admin keys always pass).
 Idempotent (same `group`/`slug` replaces). Response:
 
 ```json
 { "url": "https://app.claude.example.com", "group": "claude", "slug": "app", "updated_at": "2026-06-04T..." }
 ```
 
-**`DELETE /ingest/sites/{group…}/{slug}`** — admin-scoped key only (automation
-cleanup).
+**`DELETE /ingest/sites/{group…}/{slug}`** — requires the `unpublish` capability
+on the group (automation cleanup, e.g. PR-preview teardown). `PATCH` requires
+`patch`; `POST …/rollback` requires `rollback`.
 
 Example publish of a single HTML file:
 
@@ -254,8 +299,8 @@ A distributable **Claude skill** lives in
 [`examples/skill/`](examples/skill/SKILL.md). It asks for consent, writes a
 self-contained `index.html`, picks a URL-safe `slug`/`group` (default
 `claude`), publishes via the single-`index` ingest form using `GOTIFACTS_URL` +
-a `publish`-scoped `GOTIFACTS_API_KEY`, and reports the URL. It never touches
-server/proxy credentials.
+a `GOTIFACTS_API_KEY` holding the `publish` capability, and reports the URL. It
+never touches server/proxy credentials.
 
 ## Development
 

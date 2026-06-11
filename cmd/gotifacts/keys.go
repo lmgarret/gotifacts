@@ -5,11 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/keys"
+	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
 )
 
@@ -46,35 +48,178 @@ func runKeys(ctx context.Context, args []string) error {
 func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 	fs := flag.NewFlagSet("keys create", flag.ContinueOnError)
 	name := fs.String("name", "", "human-readable key name (required)")
-	scopeStr := fs.String("scope", "", "key scope: admin | publish (required)")
-	group := fs.String("group", "", "group restriction for publish-scoped keys (optional)")
+	admin := fs.Bool("admin", false, "create a superuser key (full access; no grants)")
+	var groupSpecs, siteSpecs specList
+	fs.Var(&groupSpecs, "grant", "group grant 'group:cap1,cap2' (repeatable); empty group = all sites; caps: publish,unpublish,rollback,patch")
+	fs.Var(&siteSpecs, "grant-site", "site grant 'group/slug:cap1,cap2' (repeatable); confined to that one site")
+	expiresIn := fs.Duration("expires-in", 0, "expire the key after this duration (e.g. 720h); 0 = never")
+	expiresAt := fs.String("expires-at", "", "expire the key at this RFC3339/YYYY-MM-DD instant; overrides --expires-in")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *name == "" {
 		return fmt.Errorf("--name is required")
 	}
-	scope, err := keys.ParseScope(*scopeStr)
+
+	expiry, err := resolveExpiry(*expiresIn, *expiresAt)
 	if err != nil {
-		return fmt.Errorf("--scope must be 'admin' or 'publish'")
+		return err
 	}
-	if scope == keys.ScopeAdmin && *group != "" {
-		return fmt.Errorf("--group is only valid for publish scope")
+
+	grants, err := parseGrantSpecs(groupSpecs, store.GrantGroup)
+	if err != nil {
+		return err
 	}
+	siteGrants, err := parseGrantSpecs(siteSpecs, store.GrantSite)
+	if err != nil {
+		return err
+	}
+	grants = append(grants, siteGrants...)
+	if err := validateKeyShape(*admin, grants); err != nil {
+		return err
+	}
+
 	token, hash, err := keys.Generate()
 	if err != nil {
 		return err
 	}
-	rec, err := st.CreateKey(ctx, *name, scope, *group, hash)
+	rec, err := st.CreateKey(ctx, *name, *admin, grants, expiry, hash)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Created API key #%d (%s, scope=%s", rec.ID, rec.Name, rec.Scope)
-	if rec.GroupRestriction != "" {
-		fmt.Printf(", group=%s", rec.GroupRestriction)
+	if rec.Admin {
+		fmt.Printf("Created admin API key #%d (%s)", rec.ID, rec.Name)
+	} else {
+		fmt.Printf("Created API key #%d (%s)", rec.ID, rec.Name)
+		for _, g := range rec.Grants {
+			fmt.Printf("\n  grant: %s -> %s", describeTarget(g), keys.JoinCapabilities(g.Permissions))
+		}
 	}
-	fmt.Printf(")\n\n  %s\n\nThis token is shown only once. Store it securely.\n", token)
+	if rec.ExpiresAt != nil {
+		fmt.Printf("\n  expires: %s", rec.ExpiresAt.Format(time.RFC3339))
+	}
+	fmt.Printf("\n\n  %s\n\nThis token is shown only once. Store it securely.\n", token)
 	return nil
+}
+
+// specList collects repeated grant flags of a single kind.
+type specList []string
+
+func (s *specList) String() string { return strings.Join(*s, " ") }
+func (s *specList) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+// parseGrantSpecs turns "target:cap1,cap2" specs into grants of the given kind,
+// normalizing and validating each target.
+func parseGrantSpecs(specs specList, kind store.GrantKind) ([]store.Grant, error) {
+	var out []store.Grant
+	for _, spec := range specs {
+		target, capsCSV, found := strings.Cut(spec, ":")
+		if !found {
+			return nil, fmt.Errorf("invalid grant %q (expected 'target:cap1,cap2')", spec)
+		}
+		caps, err := keys.ParseCapabilities(capsCSV)
+		if err != nil {
+			return nil, fmt.Errorf("invalid capabilities in grant %q: %w", spec, err)
+		}
+		g, err := buildGrant(kind, target, caps)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, nil
+}
+
+// buildGrant normalizes and validates a grant target for its kind. A site grant
+// requires a valid site path; a group grant accepts a valid group path or an
+// empty target (meaning "all sites").
+func buildGrant(kind store.GrantKind, target string, caps []keys.Capability) (store.Grant, error) {
+	t := strings.Trim(strings.ToLower(strings.TrimSpace(target)), "/")
+	if kind == store.GrantSite {
+		if t == "" {
+			return store.Grant{}, fmt.Errorf("a site grant requires a target")
+		}
+	}
+	if t != "" {
+		sp, err := normalizeSitePath(t)
+		if err != nil {
+			return store.Grant{}, fmt.Errorf("invalid %s target %q: %w", kind, target, err)
+		}
+		t = sp
+	}
+	return store.Grant{Kind: kind, Target: t, Permissions: caps}, nil
+}
+
+// normalizeSitePath validates a slash path and returns its canonical form,
+// reusing the router's site-path rules (labels, depth).
+func normalizeSitePath(path string) (string, error) {
+	segs := strings.Split(path, "/")
+	slug := segs[len(segs)-1]
+	group := strings.Join(segs[:len(segs)-1], "/")
+	sp, err := router.NewSitePath(group, slug)
+	if err != nil {
+		return "", err
+	}
+	return sp.Dir(), nil
+}
+
+// resolveExpiry turns the --expires-in/--expires-at flags into an instant.
+// --expires-at (RFC3339 or YYYY-MM-DD) wins; otherwise a non-zero duration is
+// added to now. The result must be in the future.
+func resolveExpiry(in time.Duration, at string) (*time.Time, error) {
+	at = strings.TrimSpace(at)
+	if at != "" {
+		var t time.Time
+		var err error
+		if len(at) == len("2006-01-02") {
+			t, err = time.Parse("2006-01-02", at)
+			if err == nil {
+				t = t.Add(24*time.Hour - time.Second)
+			}
+		} else {
+			t, err = time.Parse(time.RFC3339, at)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("--expires-at must be RFC3339 or YYYY-MM-DD")
+		}
+		if !t.After(time.Now()) {
+			return nil, fmt.Errorf("--expires-at must be in the future")
+		}
+		return &t, nil
+	}
+	if in > 0 {
+		t := time.Now().Add(in)
+		return &t, nil
+	}
+	return nil, nil
+}
+
+// validateKeyShape mirrors the server-side key-level invariants.
+func validateKeyShape(admin bool, grants []store.Grant) error {
+	if admin {
+		if len(grants) > 0 {
+			return fmt.Errorf("--admin keys must not specify grants")
+		}
+		return nil
+	}
+	if len(grants) == 0 {
+		return fmt.Errorf("specify --admin or at least one --grant/--grant-site")
+	}
+	return nil
+}
+
+// describeTarget renders a grant's target for display.
+func describeTarget(g store.Grant) string {
+	if g.Kind == store.GrantSite {
+		return "site " + g.Target
+	}
+	if g.Target == "" {
+		return "all sites"
+	}
+	return "group " + g.Target
 }
 
 func keysList(ctx context.Context, st *store.Store) error {
@@ -83,19 +228,38 @@ func keysList(ctx context.Context, st *store.Store) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "ID\tNAME\tSCOPE\tGROUP\tCREATED\tLAST USED")
+	_, _ = fmt.Fprintln(tw, "ID\tNAME\tACCESS\tCREATED\tLAST USED\tEXPIRES")
+	now := time.Now()
 	for _, k := range ks {
 		last := "never"
 		if k.LastUsedAt != nil {
 			last = k.LastUsedAt.Format(time.RFC3339)
 		}
-		grp := k.GroupRestriction
-		if grp == "" {
-			grp = "-"
+		expires := "never"
+		if k.ExpiresAt != nil {
+			expires = k.ExpiresAt.Format(time.RFC3339)
+			if k.Expired(now) {
+				expires += " (expired)"
+			}
 		}
-		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, k.Scope, grp, k.CreatedAt.Format(time.RFC3339), last)
+		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, describeAccess(k), k.CreatedAt.Format(time.RFC3339), last, expires)
 	}
 	return tw.Flush()
+}
+
+// describeAccess renders a key's privilege for the list view.
+func describeAccess(k store.APIKey) string {
+	if k.Admin {
+		return "admin"
+	}
+	if len(k.Grants) == 0 {
+		return "-"
+	}
+	parts := make([]string, len(k.Grants))
+	for i, g := range k.Grants {
+		parts[i] = describeTarget(g) + ":" + keys.JoinCapabilities(g.Permissions)
+	}
+	return strings.Join(parts, " ")
 }
 
 func keysRevoke(ctx context.Context, st *store.Store, args []string) error {

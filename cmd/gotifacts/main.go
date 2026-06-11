@@ -4,7 +4,7 @@
 // Usage:
 //
 //	gotifacts serve                                  run the HTTP server (default)
-//	gotifacts keys create --name N --scope S [--group G]
+//	gotifacts keys create --name N [--admin | --grant G:CAPS | --grant-site S:CAPS]
 //	gotifacts keys list
 //	gotifacts keys revoke --id ID
 package main
@@ -55,7 +55,7 @@ func usage(w *os.File) {
 
 Commands:
   serve                                   Run the HTTP server (default)
-  keys create --name N --scope S [--group G]
+  keys create --name N [--admin] [--grant G:CAPS] [--grant-site S:CAPS]
                                           Create an API key (prints token once)
   keys list                               List API keys
   keys revoke --id ID                     Delete an API key

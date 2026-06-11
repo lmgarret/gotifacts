@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/keys"
@@ -36,25 +37,61 @@ type Principal struct {
 	User string
 	// Admin reports full administrative privilege.
 	Admin bool
-	// Scope is set for API-key principals.
-	Scope keys.Scope
-	// GroupRestriction limits publish-scoped keys to a group subtree (may be empty).
-	GroupRestriction string
+	// Grants are the per-group capability grants of an API-key principal.
+	Grants []store.Grant
 	// Source records how the principal authenticated.
 	Source Source
 	// KeyID is the api_keys row id for API-key principals.
 	KeyID int64
 }
 
-// CanPublishTo reports whether the principal may publish to the given group.
-func (p *Principal) CanPublishTo(group string) bool {
+// Can reports whether the principal holds capability c on the site identified
+// by (group, slug). Admin principals are unconditionally allowed. For API-key
+// principals, any grant that includes c and whose subtree covers the site
+// suffices.
+func (p *Principal) Can(c keys.Capability, group, slug string) bool {
 	if p.Admin {
 		return true
 	}
-	if p.Source == SourceAPIKey && p.Scope == keys.ScopePublish {
-		return groupAllowed(p.GroupRestriction, group)
+	if p.Source != SourceAPIKey {
+		return false
+	}
+	for _, g := range p.Grants {
+		if keys.HasCapability(g.Permissions, c) && grantCovers(g, group, slug) {
+			return true
+		}
 	}
 	return false
+}
+
+// CanPublishTo reports whether the principal may publish the given site.
+func (p *Principal) CanPublishTo(group, slug string) bool {
+	return p.Can(keys.CapPublish, group, slug)
+}
+
+// grantCovers reports whether g covers the site identified by (group, slug).
+//
+//   - A site grant matches exactly one site: its target equals the site's dir.
+//   - A group grant matches the whole subtree: any site whose group lies within
+//     the target, plus the group's own subdomain (the site whose dir equals the
+//     target). An empty target matches everything (global).
+func grantCovers(g store.Grant, group, slug string) bool {
+	dir := siteDir(group, slug)
+	if g.Kind == store.GrantSite {
+		return dir == g.Target
+	}
+	if groupAllowed(g.Target, group) {
+		return true
+	}
+	return g.Target != "" && dir == g.Target
+}
+
+// siteDir is the slash-joined directory of a site, e.g. "grp/app" or "app".
+func siteDir(group, slug string) string {
+	if group == "" {
+		return slug
+	}
+	return group + "/" + slug
 }
 
 // groupAllowed reports whether target is within the restriction subtree.
@@ -107,14 +144,16 @@ func (a *Authenticator) APIKey(ctx context.Context, r *http.Request) *Principal 
 	if err != nil {
 		return nil
 	}
+	if rec.Expired(time.Now()) {
+		return nil
+	}
 	a.store.TouchKey(ctx, rec.ID)
 	return &Principal{
-		User:             rec.Name,
-		Admin:            rec.Scope == keys.ScopeAdmin,
-		Scope:            rec.Scope,
-		GroupRestriction: rec.GroupRestriction,
-		Source:           SourceAPIKey,
-		KeyID:            rec.ID,
+		User:   rec.Name,
+		Admin:  rec.Admin,
+		Grants: rec.Grants,
+		Source: SourceAPIKey,
+		KeyID:  rec.ID,
 	}
 }
 
