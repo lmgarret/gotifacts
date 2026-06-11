@@ -389,47 +389,11 @@ main {
   margin-top: 0;
 }
 
-.keyform {
+.keys-head {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.8rem;
-  margin: 1rem 0 1.5rem;
-}
-
-.keyform-row {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.8rem;
-}
-
-.grants-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.8rem;
-}
-
-.grant-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.8rem;
-}
-
-.grant-row .caps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.8rem;
-}
-
-.grant-impact {
-  flex-basis: 100%;
-  font-size: 0.78rem;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .grant-list {
@@ -448,6 +412,181 @@ main {
   white-space: nowrap;
 }
 
+/* Create-key modal */
+.keymodal {
+  max-width: 38rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 1rem 0;
+}
+
+.field-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.field-hint {
+  font-size: 0.8rem;
+}
+
+.field input {
+  align-self: stretch;
+}
+
+.admin-toggle {
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.grants-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.grants-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.add-grant {
+  align-self: flex-start;
+}
+
+/* A single grant: collapsible card */
+.grant-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  position: relative;
+  background: var(--bg);
+}
+
+.grant-card.is-global {
+  border-color: var(--warn);
+}
+
+.grant-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.6rem 2.2rem 0.6rem 0.7rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.grant-chevron {
+  color: var(--muted);
+  width: 0.9rem;
+}
+
+.grant-target {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.grant-caps {
+  font-size: 0.8rem;
+  margin-left: auto;
+  padding-left: 0.6rem;
+}
+
+.grant-remove {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+}
+
+.grant-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0 0.7rem 0.8rem;
+  border-top: 1px solid var(--border);
+}
+
+.grant-body .field {
+  margin: 0.8rem 0 0;
+}
+
+.scope-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.scope-type {
+  flex: 0 0 auto;
+}
+
+.scope-impact {
+  font-size: 0.8rem;
+}
+
+.danger-text {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.perm-set {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--surface);
+}
+
+.perm-set legend {
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0 0.3rem;
+}
+
+.perm-row {
+  display: grid;
+  grid-template-columns: auto 6rem 1fr;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+}
+
+.perm-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.perm-desc {
+  font-size: 0.8rem;
+}
+
+.global-warning {
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+}
+
+.global-warning p {
+  margin: 0 0 0.5rem;
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
 /* Target combobox (group/site selector) */
 .target-select {
   display: flex;
@@ -457,6 +596,17 @@ main {
 
 .target-input-wrap {
   position: relative;
+  flex: 1 1 12rem;
+}
+
+.target-input {
+  width: 100%;
+}
+.target-input.group {
+  border-left: 3px solid var(--accent);
+}
+.target-input.site {
+  border-left: 3px solid #0e7490;
 }
 
 .target-badge {

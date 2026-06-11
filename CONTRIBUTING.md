@@ -30,7 +30,7 @@ The Go layout:
 | `cmd/gotifacts` | CLI entrypoint: `serve` and `keys` subcommands |
 | `internal/config` | Env-var configuration + validation |
 | `internal/store` | SQLite registry (sites + API keys), embedded migrations |
-| `internal/keys` | API-key generation, hashing, scopes |
+| `internal/keys` | API-key generation, hashing, capabilities |
 | `internal/auth` | Two-plane authorization (forward-auth + API key) |
 | `internal/archive` | Safe tar.gz extraction (zip-slip / tar-bomb defenses) |
 | `internal/router` | URL ⇄ path convention + host dispatch |
@@ -52,6 +52,48 @@ npm run dev      # local dev server, proxies /api to localhost:8080
 > **Note:** `web/dist` is committed so that `go test`/`go build` always have an
 > embed target. After changing the frontend, run `npm run build` and commit the
 > regenerated `web/dist`.
+
+## Running a full local dev environment
+
+In production a reverse proxy authenticates you and injects an identity header
+(`Remote-User` by default); the management plane (`/api/*`, and the portal UI)
+only trusts that header when the request's peer IP is in
+`GOTIFACTS_TRUSTED_PROXIES`. Locally there is no such proxy, so you must (a)
+trust loopback and (b) inject the header yourself — otherwise the UI shows
+"reach the portal through your authenticating proxy" and the API returns
+`401 authentication required`.
+
+**1. Run the server** (in its own terminal):
+
+```sh
+GOTIFACTS_BASE_DOMAIN=localhost \
+GOTIFACTS_TRUSTED_PROXIES=127.0.0.1/32,::1/128 \
+GOTIFACTS_ADMIN_USERS=dev@example.com \
+GOTIFACTS_DATA_DIR=./_devdata \
+go run ./cmd/gotifacts serve
+```
+
+> Include **both** loopback CIDRs: `localhost` often resolves to IPv6 `::1`, so a
+> v4-only trust list silently rejects the header. To create keys (the **API
+> Keys** view is admin-only) the dev user must be in `GOTIFACTS_ADMIN_USERS`.
+
+**2. Run the SPA** (second terminal). Set `GOTIFACTS_DEV_USER` to the same admin
+user; the vite dev proxy then injects `Remote-User` on every `/api` call,
+standing in for your auth proxy:
+
+```sh
+cd web
+GOTIFACTS_DEV_USER=dev@example.com npm run dev
+```
+
+Open the printed URL. For a quick backend-only check (loopback is trusted):
+
+```sh
+curl -H "Remote-User: dev@example.com" http://127.0.0.1:8080/api/me
+```
+
+The `GOTIFACTS_DEV_USER` shim is dev-only — it has no effect on `npm run build`
+or production.
 
 ## Docs
 

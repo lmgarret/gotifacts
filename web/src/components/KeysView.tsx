@@ -1,21 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import {
-  api,
-  CAPABILITIES,
-  type ApiKey,
-  type Capability,
-  type CreatedKey,
-  type Grant,
-  type Site,
-} from "../api";
-import { hostForDir, impact, TargetSelect } from "./TargetSelect";
-
-function emptyGrant(): Grant {
-  return { kind: "group", target: "", permissions: ["publish"] };
-}
+import { useEffect, useMemo, useState } from "react";
+import { api, type ApiKey, type Site } from "../api";
+import { hostForDir, scopeImpact, scopeTypeOf } from "../grants";
+import { KeyCreateModal } from "./KeyCreateModal";
 
 // deriveTargets splits the site list into the set of existing site dirs and the
-// set of group prefixes that contain them.
+// set of group prefixes that contain them, for the create modal's suggestions.
 function deriveTargets(sites: Site[]): { groups: string[]; sites: string[] } {
   const groups = new Set<string>();
   const siteDirs = new Set<string>();
@@ -31,13 +20,9 @@ function deriveTargets(sites: Site[]): { groups: string[]; sites: string[] } {
 export function KeysView() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<CreatedKey | null>(null);
   const [allSites, setAllSites] = useState<Site[]>([]);
   const [base, setBase] = useState("");
-
-  const [name, setName] = useState("");
-  const [admin, setAdmin] = useState(false);
-  const [grants, setGrants] = useState<Grant[]>([emptyGrant()]);
+  const [creating, setCreating] = useState(false);
 
   const { groups, sites } = useMemo(() => deriveTargets(allSites), [allSites]);
 
@@ -54,66 +39,6 @@ export function KeysView() {
     api.listSites().then((r) => setAllSites(r.sites)).catch(() => {});
   }, []);
 
-  const resetForm = () => {
-    setName("");
-    setAdmin(false);
-    setGrants([emptyGrant()]);
-  };
-
-  const updateGrant = (i: number, patch: Partial<Grant>) =>
-    setGrants((gs) => gs.map((g, j) => (j === i ? { ...g, ...patch } : g)));
-
-  const toggleCap = (i: number, cap: Capability) =>
-    setGrants((gs) =>
-      gs.map((g, j) => {
-        if (j !== i) return g;
-        const has = g.permissions.includes(cap);
-        return {
-          ...g,
-          permissions: has
-            ? g.permissions.filter((c) => c !== cap)
-            : [...g.permissions, cap],
-        };
-      }),
-    );
-
-  const addGrant = () => setGrants((gs) => [...gs, emptyGrant()]);
-  const removeGrant = (i: number) =>
-    setGrants((gs) => (gs.length > 1 ? gs.filter((_, j) => j !== i) : gs));
-
-  // Client-side validation mirroring the server invariants.
-  const validationError = (): string | null => {
-    if (admin) return null;
-    if (grants.length === 0) return "Add at least one grant or make the key an admin.";
-    for (const g of grants) {
-      if (g.permissions.length === 0) return "Each grant needs at least one capability.";
-      if (g.kind === "site" && !g.target.trim()) return "A site grant needs a target.";
-    }
-    return null;
-  };
-
-  const create = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    const v = validationError();
-    if (v) {
-      setError(v);
-      return;
-    }
-    try {
-      const k = await api.createKey({
-        name,
-        admin,
-        grants: admin ? [] : grants.map((g) => ({ ...g, target: g.target.trim() })),
-      });
-      setCreated(k);
-      resetForm();
-      load();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
   const revoke = async (id: number) => {
     if (!confirm("Revoke this key? Clients using it will stop working.")) return;
     try {
@@ -126,91 +51,16 @@ export function KeysView() {
 
   return (
     <div className="keys">
-      <h2>API Keys</h2>
+      <div className="keys-head">
+        <h2>API Keys</h2>
+        <button onClick={() => setCreating(true)}>+ New key</button>
+      </div>
       <p className="muted">
         Keys authorize the machine ingest plane (<code>/ingest/*</code>). The portal itself never
         uses a key — your proxy authenticates you. A key is either an <strong>admin</strong>{" "}
-        superuser, or a set of <strong>grants</strong> giving capabilities on a group subtree or a
-        single site.
+        superuser, or a set of <strong>grants</strong> giving capabilities on a group, a single
+        site, or all sites.
       </p>
-
-      {created && (
-        <div className="newkey">
-          <strong>
-            New {created.admin ? "admin " : ""}key “{created.name}” created.
-          </strong>
-          <p>Copy it now — it is shown only once:</p>
-          <code className="token">{created.key}</code>
-          <button onClick={() => setCreated(null)}>Done</button>
-        </div>
-      )}
-
-      <form className="keyform" onSubmit={create}>
-        <div className="keyform-row">
-          <input
-            placeholder="Key name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={admin}
-              onChange={(e) => setAdmin(e.target.checked)}
-            />
-            admin (full access)
-          </label>
-        </div>
-
-        {!admin && (
-          <div className="grants-editor">
-            {grants.map((g, i) => (
-              <div className="grant-row" key={i}>
-                <TargetSelect
-                  kind={g.kind}
-                  target={g.target}
-                  groups={groups}
-                  sites={sites}
-                  base={base}
-                  onChange={(kind, target) => updateGrant(i, { kind, target })}
-                />
-                <div className="caps">
-                  {CAPABILITIES.map((cap) => (
-                    <label className="checkbox" key={cap}>
-                      <input
-                        type="checkbox"
-                        checked={g.permissions.includes(cap)}
-                        onChange={() => toggleCap(i, cap)}
-                      />
-                      {cap}
-                    </label>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="small"
-                  onClick={() => removeGrant(i)}
-                  disabled={grants.length === 1}
-                  title="Remove grant"
-                >
-                  ✕
-                </button>
-                {base && (
-                  <span className="grant-impact muted" title={impact(g.kind, g.target, base)}>
-                    {impact(g.kind, g.target, base)}
-                  </span>
-                )}
-              </div>
-            ))}
-            <button type="button" className="small" onClick={addGrant}>
-              + Add grant
-            </button>
-          </div>
-        )}
-
-        <button type="submit">Create key</button>
-      </form>
 
       {error && <p className="error">{error}</p>}
 
@@ -235,16 +85,17 @@ export function KeysView() {
                   <span className="muted">—</span>
                 ) : (
                   <ul className="grant-list">
-                    {k.grants.map((g, i) => (
-                      <li key={i} title={base ? impact(g.kind, g.target, base) : undefined}>
-                        <span className={`target-badge ${g.kind} ${g.target === "" && g.kind === "group" ? "global" : ""}`}>
-                          {g.target === "" && g.kind === "group" ? "global" : g.kind}
-                        </span>
-                        <code>{g.target || (base ? hostForDir("", base) : "*")}</code>
-                        <span className="muted"> → </span>
-                        {g.permissions.join(", ")}
-                      </li>
-                    ))}
+                    {k.grants.map((g, i) => {
+                      const type = scopeTypeOf(g);
+                      return (
+                        <li key={i} title={base ? scopeImpact(type, g.target, base) : undefined}>
+                          <span className={`target-badge ${type}`}>{type}</span>
+                          <code>{type === "global" ? "all sites" : g.target || (base ? hostForDir("", base) : "*")}</code>
+                          <span className="muted"> → </span>
+                          {g.permissions.join(", ")}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </td>
@@ -266,6 +117,16 @@ export function KeysView() {
           )}
         </tbody>
       </table>
+
+      {creating && (
+        <KeyCreateModal
+          groups={groups}
+          sites={sites}
+          base={base}
+          onClose={() => setCreating(false)}
+          onCreated={load}
+        />
+      )}
     </div>
   );
 }
