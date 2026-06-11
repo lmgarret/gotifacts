@@ -142,7 +142,14 @@ func (s *Store) loadGrants(ctx context.Context, k *APIKey) error {
 		if err := rows.Scan(&kind, &target, &perms); err != nil {
 			return err
 		}
-		caps, _ := keys.ParseCapabilities(perms)
+		// Fail closed: an unparseable permissions value yields no capabilities.
+		// Surface it so a corruption or version skew is diagnosable rather than a
+		// silent "access denied".
+		caps, err := keys.ParseCapabilities(perms)
+		if err != nil {
+			s.log.Warn("api key grant has unparseable permissions; granting no capabilities",
+				"key_id", k.ID, "permissions", perms, "err", err)
+		}
 		k.Grants = append(k.Grants, Grant{Kind: ParseGrantKind(kind), Target: target, Permissions: caps})
 	}
 	return rows.Err()

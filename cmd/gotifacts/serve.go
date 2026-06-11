@@ -42,6 +42,7 @@ func runServe(ctx context.Context, _ []string) error {
 	if err != nil {
 		return err
 	}
+	st.SetLogger(log)
 	defer func() { _ = st.Close() }()
 
 	dist, err := web.Dist()

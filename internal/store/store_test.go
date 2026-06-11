@@ -1,11 +1,14 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lmgarret/gotifacts/internal/keys"
@@ -173,6 +176,46 @@ func TestLegacyKeyMigration(t *testing.T) {
 	}
 	if !adm.Admin || len(adm.Grants) != 0 {
 		t.Fatalf("legacy admin key should be a grant-less superuser: %+v", adm)
+	}
+}
+
+// TestLoadGrantsBadPermissions verifies that a grant row with an unparseable
+// permissions value loads fail-closed (no capabilities) and is logged, rather
+// than failing the whole key lookup or silently denying.
+func TestLoadGrantsBadPermissions(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	var logbuf bytes.Buffer
+	st.SetLogger(slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+	_, hash, _ := keys.Generate()
+	rec, err := st.CreateKey(ctx, "k", false,
+		[]Grant{{Kind: GrantGroup, Target: "docs", Permissions: []keys.Capability{keys.CapPublish}}}, nil, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the stored permissions to a value this binary cannot parse.
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE api_key_grants SET permissions=? WHERE key_id=?`, "totally-bogus", rec.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.GetKey(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("key should still load despite a bad grant: %v", err)
+	}
+	if len(got.Grants) != 1 {
+		t.Fatalf("expected the grant to remain, got %+v", got.Grants)
+	}
+	if len(got.Grants[0].Permissions) != 0 {
+		t.Fatalf("bad grant must convey no capability, got %v", got.Grants[0].Permissions)
+	}
+	// The failure must be observable with enough context to diagnose.
+	logs := logbuf.String()
+	if !strings.Contains(logs, "key_id") || !strings.Contains(logs, "totally-bogus") {
+		t.Fatalf("expected a warning mentioning key_id and the offending value, got: %q", logs)
 	}
 }
 
