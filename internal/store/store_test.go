@@ -162,7 +162,7 @@ func TestLegacyKeyMigration(t *testing.T) {
 	if pub.Admin {
 		t.Fatal("legacy publish key must not become admin")
 	}
-	if len(pub.Grants) != 1 || pub.Grants[0].Group != "claude" ||
+	if len(pub.Grants) != 1 || pub.Grants[0].Kind != GrantGroup || pub.Grants[0].Target != "claude" ||
 		!keys.HasCapability(pub.Grants[0].Permissions, keys.CapPublish) {
 		t.Fatalf("legacy publish key got wrong grants: %+v", pub.Grants)
 	}
@@ -181,7 +181,10 @@ func TestKeyLifecycle(t *testing.T) {
 	st := newTestStore(t)
 
 	tok, hash, _ := keys.Generate()
-	grants := []Grant{{Group: "claude", Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish}}}
+	grants := []Grant{
+		{Kind: GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish}},
+		{Kind: GrantSite, Target: "docs/app", Permissions: []keys.Capability{keys.CapPatch}},
+	}
 	rec, err := st.CreateKey(ctx, "ci", false, grants, hash)
 	if err != nil {
 		t.Fatal(err)
@@ -189,8 +192,11 @@ func TestKeyLifecycle(t *testing.T) {
 	if rec.Admin {
 		t.Fatalf("scoped key must not be admin: %+v", rec)
 	}
-	if len(rec.Grants) != 1 || rec.Grants[0].Group != "claude" || len(rec.Grants[0].Permissions) != 2 {
+	if len(rec.Grants) != 2 || rec.Grants[0].Target != "claude" || rec.Grants[0].Kind != GrantGroup {
 		t.Fatalf("unexpected grants: %+v", rec.Grants)
+	}
+	if rec.Grants[1].Kind != GrantSite || rec.Grants[1].Target != "docs/app" {
+		t.Fatalf("site grant not stored: %+v", rec.Grants[1])
 	}
 
 	found, err := st.FindKeyByHash(ctx, keys.Hash(tok))
@@ -200,7 +206,7 @@ func TestKeyLifecycle(t *testing.T) {
 	if found.ID != rec.ID {
 		t.Fatal("hash lookup returned wrong key")
 	}
-	if len(found.Grants) != 1 || found.Grants[0].Group != "claude" {
+	if len(found.Grants) != 2 || found.Grants[0].Target != "claude" {
 		t.Fatalf("grants not loaded on lookup: %+v", found.Grants)
 	}
 

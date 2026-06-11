@@ -99,7 +99,8 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 	// A CI key that may publish and unpublish within the "claude" subtree.
 	tok, hash, _ := keys.Generate()
 	grants := []store.Grant{{
-		Group:       "claude",
+		Kind:        store.GrantGroup,
+		Target:      "claude",
 		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
 	}}
 	if _, err := st.CreateKey(context.Background(), "ci", false, grants, hash); err != nil {
@@ -136,6 +137,23 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 	}
 	if p.Can(keys.CapPublish, "", "other") || p.Can(keys.CapPublish, "", "claudex") {
 		t.Fatal("grant on 'claude' must not cover unrelated apex sites")
+	}
+
+	// A site grant covers exactly one site — neither children nor siblings.
+	tokS, hashS, _ := keys.Generate()
+	_, _ = st.CreateKey(context.Background(), "site", false, []store.Grant{{
+		Kind:        store.GrantSite,
+		Target:      "docs/app",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
+	}}, hashS)
+	rS := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", nil)
+	rS.Header.Set("Authorization", "Bearer "+tokS)
+	ps := a.APIKey(context.Background(), rS)
+	if !ps.Can(keys.CapPublish, "docs", "app") {
+		t.Fatal("site grant should cover its exact site")
+	}
+	if ps.Can(keys.CapPublish, "docs/app", "child") || ps.Can(keys.CapPublish, "docs", "other") {
+		t.Fatal("site grant must not cover children or siblings")
 	}
 
 	// Bogus token rejected.

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   api,
   CAPABILITIES,
@@ -6,25 +6,40 @@ import {
   type Capability,
   type CreatedKey,
   type Grant,
+  type Site,
 } from "../api";
-
-// A grant whose capabilities reach beyond publish must be bound to a group.
-function grantNeedsGroup(g: Grant): boolean {
-  return g.permissions.some((c) => c !== "publish");
-}
+import { hostForDir, impact, TargetSelect } from "./TargetSelect";
 
 function emptyGrant(): Grant {
-  return { group: "", permissions: ["publish"] };
+  return { kind: "group", target: "", permissions: ["publish"] };
+}
+
+// deriveTargets splits the site list into the set of existing site dirs and the
+// set of group prefixes that contain them.
+function deriveTargets(sites: Site[]): { groups: string[]; sites: string[] } {
+  const groups = new Set<string>();
+  const siteDirs = new Set<string>();
+  for (const s of sites) {
+    const dir = s.group ? `${s.group}/${s.slug}` : s.slug;
+    siteDirs.add(dir);
+    const segs = dir.split("/");
+    for (let i = 1; i < segs.length; i++) groups.add(segs.slice(0, i).join("/"));
+  }
+  return { groups: [...groups].sort(), sites: [...siteDirs].sort() };
 }
 
 export function KeysView() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedKey | null>(null);
+  const [allSites, setAllSites] = useState<Site[]>([]);
+  const [base, setBase] = useState("");
 
   const [name, setName] = useState("");
   const [admin, setAdmin] = useState(false);
   const [grants, setGrants] = useState<Grant[]>([emptyGrant()]);
+
+  const { groups, sites } = useMemo(() => deriveTargets(allSites), [allSites]);
 
   const load = () => {
     api
@@ -33,7 +48,11 @@ export function KeysView() {
       .catch((e: Error) => setError(e.message));
   };
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+    api.me().then((m) => setBase(m.base_domain)).catch(() => {});
+    api.listSites().then((r) => setAllSites(r.sites)).catch(() => {});
+  }, []);
 
   const resetForm = () => {
     setName("");
@@ -68,9 +87,7 @@ export function KeysView() {
     if (grants.length === 0) return "Add at least one grant or make the key an admin.";
     for (const g of grants) {
       if (g.permissions.length === 0) return "Each grant needs at least one capability.";
-      if (!g.group.trim() && grantNeedsGroup(g)) {
-        return "A grant with unpublish/rollback/patch must specify a group.";
-      }
+      if (g.kind === "site" && !g.target.trim()) return "A site grant needs a target.";
     }
     return null;
   };
@@ -87,7 +104,7 @@ export function KeysView() {
       const k = await api.createKey({
         name,
         admin,
-        grants: admin ? [] : grants.map((g) => ({ ...g, group: g.group.trim() })),
+        grants: admin ? [] : grants.map((g) => ({ ...g, target: g.target.trim() })),
       });
       setCreated(k);
       resetForm();
@@ -113,8 +130,8 @@ export function KeysView() {
       <p className="muted">
         Keys authorize the machine ingest plane (<code>/ingest/*</code>). The portal itself never
         uses a key — your proxy authenticates you. A key is either an <strong>admin</strong>{" "}
-        superuser, or a set of <strong>grants</strong> giving specific capabilities on a group
-        subtree.
+        superuser, or a set of <strong>grants</strong> giving capabilities on a group subtree or a
+        single site.
       </p>
 
       {created && (
@@ -150,10 +167,13 @@ export function KeysView() {
           <div className="grants-editor">
             {grants.map((g, i) => (
               <div className="grant-row" key={i}>
-                <input
-                  placeholder={grantNeedsGroup(g) ? "group (required)" : "group (optional)"}
-                  value={g.group}
-                  onChange={(e) => updateGrant(i, { group: e.target.value })}
+                <TargetSelect
+                  kind={g.kind}
+                  target={g.target}
+                  groups={groups}
+                  sites={sites}
+                  base={base}
+                  onChange={(kind, target) => updateGrant(i, { kind, target })}
                 />
                 <div className="caps">
                   {CAPABILITIES.map((cap) => (
@@ -176,6 +196,11 @@ export function KeysView() {
                 >
                   ✕
                 </button>
+                {base && (
+                  <span className="grant-impact muted" title={impact(g.kind, g.target, base)}>
+                    {impact(g.kind, g.target, base)}
+                  </span>
+                )}
               </div>
             ))}
             <button type="button" className="small" onClick={addGrant}>
@@ -211,8 +236,11 @@ export function KeysView() {
                 ) : (
                   <ul className="grant-list">
                     {k.grants.map((g, i) => (
-                      <li key={i}>
-                        <code>{g.group || "*"}</code>
+                      <li key={i} title={base ? impact(g.kind, g.target, base) : undefined}>
+                        <span className={`target-badge ${g.kind} ${g.target === "" && g.kind === "group" ? "global" : ""}`}>
+                          {g.target === "" && g.kind === "group" ? "global" : g.kind}
+                        </span>
+                        <code>{g.target || (base ? hostForDir("", base) : "*")}</code>
                         <span className="muted"> → </span>
                         {g.permissions.join(", ")}
                       </li>

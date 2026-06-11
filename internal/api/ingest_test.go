@@ -63,7 +63,8 @@ func TestIngestCapabilityGating(t *testing.T) {
 
 	// Key may publish+unpublish under "previews" only.
 	tok := mintKey(t, st, false, []store.Grant{{
-		Group:       "previews",
+		Kind:        store.GrantGroup,
+		Target:      "previews",
 		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
 	}})
 

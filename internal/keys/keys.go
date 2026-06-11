@@ -84,21 +84,6 @@ func ParseCapabilities(csv string) ([]Capability, error) {
 	return out, nil
 }
 
-// OnlyPublish reports whether caps is non-empty and contains nothing beyond
-// the (non-destructive) publish capability. Used to decide whether a grant may
-// omit its group restriction.
-func OnlyPublish(caps []Capability) bool {
-	if len(caps) == 0 {
-		return false
-	}
-	for _, c := range caps {
-		if c != CapPublish {
-			return false
-		}
-	}
-	return true
-}
-
 // HasCapability reports whether caps contains target.
 func HasCapability(caps []Capability, target Capability) bool {
 	for _, c := range caps {

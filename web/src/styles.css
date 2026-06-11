@@ -427,14 +427,122 @@ main {
   gap: 0.8rem;
 }
 
+.grant-impact {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+}
+
 .grant-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .grant-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   white-space: nowrap;
+}
+
+/* Target combobox (group/site selector) */
+.target-select {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.target-input-wrap {
+  position: relative;
+}
+
+.target-badge {
+  align-self: center;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.target-badge.group {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.target-badge.site {
+  color: #0e7490;
+  border-color: #0e7490;
+}
+.target-badge.global {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.target-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 2px);
+  left: 0;
+  min-width: 18rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.target-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.target-option:hover {
+  background: var(--bg);
+}
+
+.target-option .opt-kind {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid currentColor;
+}
+.target-option.group .opt-kind {
+  color: var(--accent);
+}
+.target-option.site .opt-kind {
+  color: #0e7490;
+}
+.target-option.global .opt-kind {
+  color: var(--warn);
+}
+
+.target-option .opt-target {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.target-option .opt-state {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.target-option.new .opt-state {
+  color: var(--warn);
 }
 
 .newkey {

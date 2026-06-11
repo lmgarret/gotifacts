@@ -66,15 +66,3 @@ func TestParseCapabilities(t *testing.T) {
 		t.Fatal("expected error for invalid capability")
 	}
 }
-
-func TestOnlyPublish(t *testing.T) {
-	if !OnlyPublish([]Capability{CapPublish}) {
-		t.Fatal("publish-only set should report true")
-	}
-	if OnlyPublish([]Capability{CapPublish, CapUnpublish}) {
-		t.Fatal("set with unpublish should report false")
-	}
-	if OnlyPublish(nil) {
-		t.Fatal("empty set should report false")
-	}
-}

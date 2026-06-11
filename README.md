@@ -103,8 +103,8 @@ Rules:
 ## Permissions & API keys
 
 Access on the ingest plane is **capability-based**. A key is either an
-**admin** superuser or a set of **grants**, each pairing a group subtree with a
-set of capabilities:
+**admin** superuser or a set of **grants**, each binding a set of capabilities
+to a target:
 
 | Capability | Allows |
 | --- | --- |
@@ -115,19 +115,20 @@ set of capabilities:
 
 | Role | Granted by | Can do |
 | --- | --- | --- |
-| **Admin** | forward-auth allowlist **or** an `admin` key | everything: manage keys + all capabilities on every group |
-| **Scoped key** | a key with one or more grants | only the granted capabilities, each confined to its group subtree |
+| **Admin** | forward-auth allowlist **or** an `admin` key | everything: manage keys + all capabilities on every site |
+| **Scoped key** | a key with one or more grants | only the granted capabilities, confined to each grant's target |
 | **Viewer** | any authenticated forward-auth user | view the portal and `GET /api/sites` |
 
-A grant's group is a **subtree**: a grant on `docs` covers everything served
-under `*.docs.<base>` (e.g. `app.docs.<base>` = group `docs`, slug `app`) **and**
-the group's own subdomain `docs.<base>` itself (the flat site group `""`, slug
-`docs`). In other words, a `docs` grant owns the `docs` subdomain and everything
-beneath it. Groups are free-text (each label must match
-`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`) — you don't pre-register them. A grant may
-omit its group (meaning *any* group) **only** when its capabilities are limited
-to `publish`; any grant including `unpublish`, `rollback`, or `patch` must be
-bound to a group.
+A grant's target is either a **group** or a single **site**:
+
+- A **group** grant on `docs` owns the `docs` subdomain and everything beneath
+  it: `docs.<base>` itself (the flat site group `""`, slug `docs`) **and** every
+  site under `*.docs.<base>` (e.g. `app.docs.<base>` = group `docs`, slug `app`).
+- A **site** grant on `docs/app` is confined to exactly that one site
+  (`app.docs.<base>`) — not its children, not its siblings.
+- A **group** grant with an **empty** target means *all sites* (global). Targets
+  are free-text (each label must match `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`) — you
+  don't pre-register them.
 
 API keys:
 
@@ -139,13 +140,19 @@ API keys:
   # A CI key that can deploy AND tear down PR previews — no admin rights:
   gotifacts keys create --name ci --grant "previews:publish,unpublish"
 
-  # Multiple grants and an admin key:
-  gotifacts keys create --name release --grant "claude:publish" --grant "demos:publish"
+  # A key confined to a single site:
+  gotifacts keys create --name docs-bot --grant-site "docs/app:publish,patch"
+
+  # Multiple grants, a global grant, and an admin key:
+  gotifacts keys create --name release --grant "claude:publish" --grant ":unpublish"
   gotifacts keys create --name root --admin
 
   gotifacts keys list
   gotifacts keys revoke --id 3
   ```
+
+  `--grant "group:caps"` targets a group subtree (empty group = all sites);
+  `--grant-site "group/slug:caps"` targets one exact site.
 
 There is **no bootstrap key**: set `GOTIFACTS_ADMIN_USERS`, log in through your
 proxy, and create keys in the UI (the CLI is the headless fallback).
@@ -168,7 +175,7 @@ proxy, and create keys in the UI (the CLI is the headless fallback).
 | `DELETE /api/sites/{group…}/{slug}` | admin | Delete site + files |
 | `POST /api/sites/{group…}/{slug}/rollback` | admin | Restore the latest archived version |
 | `GET /api/keys` | admin | List keys (no plaintext) |
-| `POST /api/keys` | admin | `{name, admin?, grants:[{group, permissions:[…]}]}` → `201 {id, name, admin, grants, key}` (plaintext **once**). Legacy `{name, scope, group?}` is still accepted. |
+| `POST /api/keys` | admin | `{name, admin?, grants:[{kind:"group"\|"site", target, permissions:[…]}]}` → `201 {id, name, admin, grants, key}` (plaintext **once**). Legacy `{name, scope, group?}` is still accepted. |
 | `DELETE /api/keys/{id}` | admin | Revoke a key |
 
 ### Ingest plane — `/ingest/*` (API key)

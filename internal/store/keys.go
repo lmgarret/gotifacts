@@ -9,10 +9,30 @@ import (
 	"github.com/lmgarret/gotifacts/internal/keys"
 )
 
-// Grant pairs a group subtree with the capabilities a key holds within it. An
-// empty Group means "any group" (only valid for non-destructive capabilities).
+// GrantKind selects how a grant's Target is interpreted.
+type GrantKind string
+
+const (
+	// GrantGroup scopes a grant to a group subtree: the group's own subdomain
+	// plus every site beneath it.
+	GrantGroup GrantKind = "group"
+	// GrantSite scopes a grant to one exact site (a single subdomain).
+	GrantSite GrantKind = "site"
+)
+
+// ParseGrantKind normalizes a kind string; anything other than "site" is a group.
+func ParseGrantKind(s string) GrantKind {
+	if GrantKind(s) == GrantSite {
+		return GrantSite
+	}
+	return GrantGroup
+}
+
+// Grant binds a set of capabilities to a target. For GrantGroup the target is a
+// group subtree (empty means "all sites"); for GrantSite it is one exact site.
 type Grant struct {
-	Group       string            `json:"group"`
+	Kind        GrantKind         `json:"kind"`
+	Target      string            `json:"target"`
 	Permissions []keys.Capability `json:"permissions"`
 }
 
@@ -48,9 +68,13 @@ func (s *Store) CreateKey(ctx context.Context, name string, admin bool, grants [
 	id, _ := res.LastInsertId()
 	if !admin {
 		for _, g := range grants {
+			kind := g.Kind
+			if kind == "" {
+				kind = GrantGroup
+			}
 			if _, err := tx.ExecContext(ctx, `
-                INSERT INTO api_key_grants (key_id, group_path, permissions)
-                VALUES (?, ?, ?)`, id, g.Group, keys.JoinCapabilities(g.Permissions)); err != nil {
+                INSERT INTO api_key_grants (key_id, kind, target, permissions)
+                VALUES (?, ?, ?, ?)`, id, string(kind), g.Target, keys.JoinCapabilities(g.Permissions)); err != nil {
 				return nil, err
 			}
 		}
@@ -96,19 +120,19 @@ func (s *Store) FindKeyByHash(ctx context.Context, hash string) (*APIKey, error)
 // loadGrants populates k.Grants from the api_key_grants table.
 func (s *Store) loadGrants(ctx context.Context, k *APIKey) error {
 	rows, err := s.db.QueryContext(ctx, `
-        SELECT group_path, permissions FROM api_key_grants
+        SELECT kind, target, permissions FROM api_key_grants
         WHERE key_id=? ORDER BY id ASC`, k.ID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var group, perms string
-		if err := rows.Scan(&group, &perms); err != nil {
+		var kind, target, perms string
+		if err := rows.Scan(&kind, &target, &perms); err != nil {
 			return err
 		}
 		caps, _ := keys.ParseCapabilities(perms)
-		k.Grants = append(k.Grants, Grant{Group: group, Permissions: caps})
+		k.Grants = append(k.Grants, Grant{Kind: ParseGrantKind(kind), Target: target, Permissions: caps})
 	}
 	return rows.Err()
 }

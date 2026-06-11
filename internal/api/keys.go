@@ -29,7 +29,8 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth
 		Name   string `json:"name"`
 		Admin  bool   `json:"admin"`
 		Grants []struct {
-			Group       string   `json:"group"`
+			Kind        string   `json:"kind"`
+			Target      string   `json:"target"`
 			Permissions []string `json:"permissions"`
 		} `json:"grants"`
 		// Legacy fields, accepted for backward compatibility with older clients.
@@ -57,7 +58,12 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			grants = append(grants, store.Grant{Group: normalizeGroup(g.Group), Permissions: caps})
+			grant, err := buildGrant(store.ParseGrantKind(g.Kind), g.Target, caps)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			grants = append(grants, grant)
 		}
 	case body.Scope != "":
 		// Legacy {scope, group} body: translate to the grant model.
@@ -66,7 +72,8 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth
 			admin = true
 		case "publish":
 			grants = append(grants, store.Grant{
-				Group:       normalizeGroup(body.Group),
+				Kind:        store.GrantGroup,
+				Target:      normalizeGroup(body.Group),
 				Permissions: []keys.Capability{keys.CapPublish},
 			})
 		default:
@@ -120,9 +127,33 @@ func parseGrantCapabilities(perms []string) ([]keys.Capability, error) {
 	return caps, nil
 }
 
-// validateKeyShape enforces the model's invariants: admin keys carry no grants,
-// non-admin keys need at least one grant, and a grant containing a destructive
-// capability (unpublish) must be bound to a non-empty group subtree.
+// buildGrant normalizes and validates a single grant's target for its kind. A
+// site grant requires a valid site path; a group grant accepts a valid group
+// path or an empty target (meaning "all sites", i.e. global).
+func buildGrant(kind store.GrantKind, target string, caps []keys.Capability) (store.Grant, error) {
+	t := normalizeGroup(target)
+	if kind == store.GrantSite {
+		if t == "" {
+			return store.Grant{}, errors.New("a site grant requires a target")
+		}
+		sp, err := parseSitePath(t, "")
+		if err != nil {
+			return store.Grant{}, errors.New("invalid site target: " + target)
+		}
+		t = sp.Dir()
+	} else if t != "" {
+		sp, err := parseSitePath(t, "")
+		if err != nil {
+			return store.Grant{}, errors.New("invalid group target: " + target)
+		}
+		t = sp.Dir()
+	}
+	return store.Grant{Kind: kind, Target: t, Permissions: caps}, nil
+}
+
+// validateKeyShape enforces the key-level invariants: admin keys carry no
+// grants; non-admin keys need at least one grant. Per-grant validity (target
+// shape, capability set) is enforced when each grant is built.
 func validateKeyShape(admin bool, grants []store.Grant) error {
 	if admin {
 		if len(grants) > 0 {
@@ -132,11 +163,6 @@ func validateKeyShape(admin bool, grants []store.Grant) error {
 	}
 	if len(grants) == 0 {
 		return errors.New("a non-admin key requires at least one grant")
-	}
-	for _, g := range grants {
-		if g.Group == "" && !keys.OnlyPublish(g.Permissions) {
-			return errors.New("a grant with unpublish/rollback/patch must specify a group")
-		}
 	}
 	return nil
 }

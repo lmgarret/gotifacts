@@ -56,7 +56,7 @@ func (p *Principal) Can(cap keys.Capability, group, slug string) bool {
 		return false
 	}
 	for _, g := range p.Grants {
-		if keys.HasCapability(g.Permissions, cap) && grantCovers(g.Group, group, slug) {
+		if keys.HasCapability(g.Permissions, cap) && grantCovers(g, group, slug) {
 			return true
 		}
 	}
@@ -68,16 +68,21 @@ func (p *Principal) CanPublishTo(group, slug string) bool {
 	return p.Can(keys.CapPublish, group, slug)
 }
 
-// grantCovers reports whether a grant scoped to grantGroup covers the site
-// identified by (group, slug). A site is covered when it lies within the grant's
-// group subtree, OR when the site *is* that group's own subdomain — i.e. its
-// directory equals grantGroup. The latter lets a grant on "docs" also manage the
-// flat site served at docs.<base> (group "", slug "docs"), not just *.docs.<base>.
-func grantCovers(grantGroup, group, slug string) bool {
-	if groupAllowed(grantGroup, group) {
+// grantCovers reports whether g covers the site identified by (group, slug).
+//
+//   - A site grant matches exactly one site: its target equals the site's dir.
+//   - A group grant matches the whole subtree: any site whose group lies within
+//     the target, plus the group's own subdomain (the site whose dir equals the
+//     target). An empty target matches everything (global).
+func grantCovers(g store.Grant, group, slug string) bool {
+	dir := siteDir(group, slug)
+	if g.Kind == store.GrantSite {
+		return dir == g.Target
+	}
+	if groupAllowed(g.Target, group) {
 		return true
 	}
-	return grantGroup != "" && siteDir(group, slug) == grantGroup
+	return g.Target != "" && dir == g.Target
 }
 
 // siteDir is the slash-joined directory of a site, e.g. "grp/app" or "app".

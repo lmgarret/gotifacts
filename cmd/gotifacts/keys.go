@@ -11,6 +11,7 @@ import (
 
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/keys"
+	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
 )
 
@@ -48,8 +49,9 @@ func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 	fs := flag.NewFlagSet("keys create", flag.ContinueOnError)
 	name := fs.String("name", "", "human-readable key name (required)")
 	admin := fs.Bool("admin", false, "create a superuser key (full access; no grants)")
-	var grantSpecs grantList
-	fs.Var(&grantSpecs, "grant", "grant in the form 'group:cap1,cap2' (repeatable); caps: publish,unpublish,rollback,patch")
+	var groupSpecs, siteSpecs specList
+	fs.Var(&groupSpecs, "grant", "group grant 'group:cap1,cap2' (repeatable); empty group = all sites; caps: publish,unpublish,rollback,patch")
+	fs.Var(&siteSpecs, "grant-site", "site grant 'group/slug:cap1,cap2' (repeatable); confined to that one site")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -57,10 +59,15 @@ func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 		return fmt.Errorf("--name is required")
 	}
 
-	grants, err := grantSpecs.parse()
+	grants, err := parseGrantSpecs(groupSpecs, store.GrantGroup)
 	if err != nil {
 		return err
 	}
+	siteGrants, err := parseGrantSpecs(siteSpecs, store.GrantSite)
+	if err != nil {
+		return err
+	}
+	grants = append(grants, siteGrants...)
 	if err := validateKeyShape(*admin, grants); err != nil {
 		return err
 	}
@@ -78,59 +85,100 @@ func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 	} else {
 		fmt.Printf("Created API key #%d (%s)", rec.ID, rec.Name)
 		for _, g := range rec.Grants {
-			grp := g.Group
-			if grp == "" {
-				grp = "*"
-			}
-			fmt.Printf("\n  grant: %s -> %s", grp, keys.JoinCapabilities(g.Permissions))
+			fmt.Printf("\n  grant: %s -> %s", describeTarget(g), keys.JoinCapabilities(g.Permissions))
 		}
 	}
 	fmt.Printf("\n\n  %s\n\nThis token is shown only once. Store it securely.\n", token)
 	return nil
 }
 
-// grantList collects repeated --grant flags ("group:cap1,cap2").
-type grantList []string
+// specList collects repeated grant flags of a single kind.
+type specList []string
 
-func (g *grantList) String() string { return strings.Join(*g, " ") }
-func (g *grantList) Set(v string) error {
-	*g = append(*g, v)
+func (s *specList) String() string { return strings.Join(*s, " ") }
+func (s *specList) Set(v string) error {
+	*s = append(*s, v)
 	return nil
 }
 
-func (g grantList) parse() ([]store.Grant, error) {
+// parseGrantSpecs turns "target:cap1,cap2" specs into grants of the given kind,
+// normalizing and validating each target.
+func parseGrantSpecs(specs specList, kind store.GrantKind) ([]store.Grant, error) {
 	var out []store.Grant
-	for _, spec := range g {
-		group, capsCSV, found := strings.Cut(spec, ":")
+	for _, spec := range specs {
+		target, capsCSV, found := strings.Cut(spec, ":")
 		if !found {
-			return nil, fmt.Errorf("invalid --grant %q (expected 'group:cap1,cap2')", spec)
+			return nil, fmt.Errorf("invalid grant %q (expected 'target:cap1,cap2')", spec)
 		}
 		caps, err := keys.ParseCapabilities(capsCSV)
 		if err != nil {
-			return nil, fmt.Errorf("invalid capabilities in --grant %q: %w", spec, err)
+			return nil, fmt.Errorf("invalid capabilities in grant %q: %w", spec, err)
 		}
-		out = append(out, store.Grant{Group: strings.Trim(strings.TrimSpace(group), "/"), Permissions: caps})
+		g, err := buildGrant(kind, target, caps)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, g)
 	}
 	return out, nil
 }
 
-// validateKeyShape mirrors the server-side invariants for headless key creation.
+// buildGrant normalizes and validates a grant target for its kind. A site grant
+// requires a valid site path; a group grant accepts a valid group path or an
+// empty target (meaning "all sites").
+func buildGrant(kind store.GrantKind, target string, caps []keys.Capability) (store.Grant, error) {
+	t := strings.Trim(strings.ToLower(strings.TrimSpace(target)), "/")
+	if kind == store.GrantSite {
+		if t == "" {
+			return store.Grant{}, fmt.Errorf("a site grant requires a target")
+		}
+	}
+	if t != "" {
+		sp, err := normalizeSitePath(t)
+		if err != nil {
+			return store.Grant{}, fmt.Errorf("invalid %s target %q: %w", kind, target, err)
+		}
+		t = sp
+	}
+	return store.Grant{Kind: kind, Target: t, Permissions: caps}, nil
+}
+
+// normalizeSitePath validates a slash path and returns its canonical form,
+// reusing the router's site-path rules (labels, depth).
+func normalizeSitePath(path string) (string, error) {
+	segs := strings.Split(path, "/")
+	slug := segs[len(segs)-1]
+	group := strings.Join(segs[:len(segs)-1], "/")
+	sp, err := router.NewSitePath(group, slug)
+	if err != nil {
+		return "", err
+	}
+	return sp.Dir(), nil
+}
+
+// validateKeyShape mirrors the server-side key-level invariants.
 func validateKeyShape(admin bool, grants []store.Grant) error {
 	if admin {
 		if len(grants) > 0 {
-			return fmt.Errorf("--admin keys must not specify --grant")
+			return fmt.Errorf("--admin keys must not specify grants")
 		}
 		return nil
 	}
 	if len(grants) == 0 {
-		return fmt.Errorf("specify --admin or at least one --grant")
-	}
-	for _, gr := range grants {
-		if gr.Group == "" && !keys.OnlyPublish(gr.Permissions) {
-			return fmt.Errorf("a grant with unpublish/rollback/patch must specify a group")
-		}
+		return fmt.Errorf("specify --admin or at least one --grant/--grant-site")
 	}
 	return nil
+}
+
+// describeTarget renders a grant's target for display.
+func describeTarget(g store.Grant) string {
+	if g.Kind == store.GrantSite {
+		return "site " + g.Target
+	}
+	if g.Target == "" {
+		return "all sites"
+	}
+	return "group " + g.Target
 }
 
 func keysList(ctx context.Context, st *store.Store) error {
@@ -160,11 +208,7 @@ func describeAccess(k store.APIKey) string {
 	}
 	parts := make([]string, len(k.Grants))
 	for i, g := range k.Grants {
-		grp := g.Group
-		if grp == "" {
-			grp = "*"
-		}
-		parts[i] = grp + ":" + keys.JoinCapabilities(g.Permissions)
+		parts[i] = describeTarget(g) + ":" + keys.JoinCapabilities(g.Permissions)
 	}
 	return strings.Join(parts, " ")
 }

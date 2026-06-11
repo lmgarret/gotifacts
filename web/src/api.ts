@@ -39,8 +39,12 @@ export type Capability = "publish" | "unpublish" | "rollback" | "patch";
 
 export const CAPABILITIES: Capability[] = ["publish", "unpublish", "rollback", "patch"];
 
+export type GrantKind = "group" | "site";
+
 export interface Grant {
-  group: string;
+  kind: GrantKind;
+  // Group subtree or exact site path. Empty (group kind) means "all sites".
+  target: string;
   permissions: Capability[];
 }
 
