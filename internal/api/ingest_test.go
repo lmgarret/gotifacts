@@ -76,6 +76,8 @@ func TestIngestCapabilityGating(t *testing.T) {
 	}{
 		{"unpublish in scope -> not 403 (404 missing site)", http.MethodDelete, "http://example.com/ingest/sites/previews/pr-1", tok, http.StatusNotFound},
 		{"unpublish out of scope -> 403", http.MethodDelete, "http://example.com/ingest/sites/prod/app", tok, http.StatusForbidden},
+		{"unpublish the group's own subdomain -> not 403 (404 missing)", http.MethodDelete, "http://example.com/ingest/sites/previews", tok, http.StatusNotFound},
+		{"unpublish unrelated apex site -> 403", http.MethodDelete, "http://example.com/ingest/sites/other", tok, http.StatusForbidden},
 		{"patch without cap -> 403", http.MethodPatch, "http://example.com/ingest/sites/previews/pr-1", tok, http.StatusForbidden},
 		{"rollback without cap -> 403", http.MethodPost, "http://example.com/ingest/sites/previews/pr-1/rollback", tok, http.StatusForbidden},
 		{"missing token -> 401", http.MethodDelete, "http://example.com/ingest/sites/previews/pr-1", "", http.StatusUnauthorized},

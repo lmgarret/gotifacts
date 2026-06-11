@@ -44,11 +44,11 @@ type Principal struct {
 	KeyID int64
 }
 
-// Can reports whether the principal holds capability cap on the given group.
-// Admin principals are unconditionally allowed. For API-key principals, any
-// grant whose capability set includes cap and whose subtree covers group
+// Can reports whether the principal holds capability cap on the site identified
+// by (group, slug). Admin principals are unconditionally allowed. For API-key
+// principals, any grant that includes cap and whose subtree covers the site
 // suffices.
-func (p *Principal) Can(cap keys.Capability, group string) bool {
+func (p *Principal) Can(cap keys.Capability, group, slug string) bool {
 	if p.Admin {
 		return true
 	}
@@ -56,16 +56,36 @@ func (p *Principal) Can(cap keys.Capability, group string) bool {
 		return false
 	}
 	for _, g := range p.Grants {
-		if keys.HasCapability(g.Permissions, cap) && groupAllowed(g.Group, group) {
+		if keys.HasCapability(g.Permissions, cap) && grantCovers(g.Group, group, slug) {
 			return true
 		}
 	}
 	return false
 }
 
-// CanPublishTo reports whether the principal may publish to the given group.
-func (p *Principal) CanPublishTo(group string) bool {
-	return p.Can(keys.CapPublish, group)
+// CanPublishTo reports whether the principal may publish the given site.
+func (p *Principal) CanPublishTo(group, slug string) bool {
+	return p.Can(keys.CapPublish, group, slug)
+}
+
+// grantCovers reports whether a grant scoped to grantGroup covers the site
+// identified by (group, slug). A site is covered when it lies within the grant's
+// group subtree, OR when the site *is* that group's own subdomain — i.e. its
+// directory equals grantGroup. The latter lets a grant on "docs" also manage the
+// flat site served at docs.<base> (group "", slug "docs"), not just *.docs.<base>.
+func grantCovers(grantGroup, group, slug string) bool {
+	if groupAllowed(grantGroup, group) {
+		return true
+	}
+	return grantGroup != "" && siteDir(group, slug) == grantGroup
+}
+
+// siteDir is the slash-joined directory of a site, e.g. "grp/app" or "app".
+func siteDir(group, slug string) string {
+	if group == "" {
+		return slug
+	}
+	return group + "/" + slug
 }
 
 // groupAllowed reports whether target is within the restriction subtree.

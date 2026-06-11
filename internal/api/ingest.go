@@ -23,7 +23,7 @@ func (s *Server) handleIngestDelete(w http.ResponseWriter, r *http.Request, p *a
 		writeError(w, http.StatusBadRequest, "invalid site path")
 		return
 	}
-	if !p.Can(keys.CapUnpublish, sp.Group) {
+	if !p.Can(keys.CapUnpublish, sp.Group, sp.Slug) {
 		writeError(w, http.StatusForbidden, "key not permitted to unpublish from this group")
 		return
 	}
@@ -44,7 +44,7 @@ func (s *Server) handleIngestPatch(w http.ResponseWriter, r *http.Request, p *au
 		writeError(w, http.StatusBadRequest, "invalid site path")
 		return
 	}
-	if !p.Can(keys.CapPatch, sp.Group) {
+	if !p.Can(keys.CapPatch, sp.Group, sp.Slug) {
 		writeError(w, http.StatusForbidden, "key not permitted to patch this group")
 		return
 	}
@@ -59,7 +59,7 @@ func (s *Server) handleIngestRollback(w http.ResponseWriter, r *http.Request, p 
 		writeError(w, http.StatusBadRequest, "invalid rollback path")
 		return
 	}
-	if !p.Can(keys.CapRollback, sp.Group) {
+	if !p.Can(keys.CapRollback, sp.Group, sp.Slug) {
 		writeError(w, http.StatusForbidden, "key not permitted to roll back this group")
 		return
 	}

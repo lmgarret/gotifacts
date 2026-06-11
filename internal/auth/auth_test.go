@@ -115,19 +115,27 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 	if p.Admin {
 		t.Fatal("scoped key must not be admin")
 	}
-	// Capability + subtree enforcement.
-	if !p.Can(keys.CapPublish, "claude") || !p.Can(keys.CapPublish, "claude/sub") {
+	// Capability + subtree enforcement. (group, slug) identifies the site.
+	if !p.Can(keys.CapPublish, "claude", "app") || !p.Can(keys.CapPublish, "claude/sub", "app") {
 		t.Fatal("key should publish within its subtree")
 	}
-	if !p.Can(keys.CapUnpublish, "claude/sub") {
+	if !p.Can(keys.CapUnpublish, "claude/sub", "app") {
 		t.Fatal("key should unpublish within its subtree")
 	}
-	if p.Can(keys.CapPublish, "other") || p.Can(keys.CapPublish, "claudex") {
+	if p.Can(keys.CapPublish, "other", "app") || p.Can(keys.CapPublish, "claudex", "app") {
 		t.Fatal("key must be confined to its subtree")
 	}
 	// Ungranted capabilities are denied even within the subtree.
-	if p.Can(keys.CapRollback, "claude") || p.Can(keys.CapPatch, "claude") {
+	if p.Can(keys.CapRollback, "claude", "app") || p.Can(keys.CapPatch, "claude", "app") {
 		t.Fatal("key must not hold ungranted capabilities")
+	}
+	// The grant on "claude" also covers the group's own subdomain — the flat
+	// site at claude.<base> (group "", slug "claude") — but no other apex site.
+	if !p.Can(keys.CapPublish, "", "claude") {
+		t.Fatal("grant on 'claude' should cover the claude.<base> apex site")
+	}
+	if p.Can(keys.CapPublish, "", "other") || p.Can(keys.CapPublish, "", "claudex") {
+		t.Fatal("grant on 'claude' must not cover unrelated apex sites")
 	}
 
 	// Bogus token rejected.
@@ -147,7 +155,7 @@ func TestAPIKeyAuthAndCapabilities(t *testing.T) {
 		t.Fatalf("admin key should authenticate as admin: %+v", pa)
 	}
 	for _, c := range []keys.Capability{keys.CapPublish, keys.CapUnpublish, keys.CapRollback, keys.CapPatch} {
-		if !pa.Can(c, "anywhere") {
+		if !pa.Can(c, "anywhere", "x") {
 			t.Fatalf("admin key should hold %s anywhere", c)
 		}
 	}

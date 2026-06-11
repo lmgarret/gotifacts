@@ -119,8 +119,11 @@ set of capabilities:
 | **Scoped key** | a key with one or more grants | only the granted capabilities, each confined to its group subtree |
 | **Viewer** | any authenticated forward-auth user | view the portal and `GET /api/sites` |
 
-A grant's group is a **subtree**: a grant on `previews` covers `previews`,
-`previews/pr-1`, etc. Groups are free-text (each label must match
+A grant's group is a **subtree**: a grant on `docs` covers everything served
+under `*.docs.<base>` (e.g. `app.docs.<base>` = group `docs`, slug `app`) **and**
+the group's own subdomain `docs.<base>` itself (the flat site group `""`, slug
+`docs`). In other words, a `docs` grant owns the `docs` subdomain and everything
+beneath it. Groups are free-text (each label must match
 `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`) — you don't pre-register them. A grant may
 omit its group (meaning *any* group) **only** when its capabilities are limited
 to `publish`; any grant including `unpublish`, `rollback`, or `patch` must be

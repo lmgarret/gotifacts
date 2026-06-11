@@ -148,7 +148,12 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	}
 	defer cleanup()
 
-	if !p.CanPublishTo(normalizeGroup(meta.Group)) {
+	sp, err := router.NewSitePath(meta.Group, meta.Slug)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid site path")
+		return
+	}
+	if !p.CanPublishTo(sp.Group, sp.Slug) {
 		writeError(w, http.StatusForbidden, "key not permitted to publish to this group")
 		return
 	}
