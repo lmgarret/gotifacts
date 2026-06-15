@@ -5,6 +5,7 @@ export interface Me {
   user: string;
   is_admin: boolean;
   base_domain: string;
+  mcp_enabled: boolean;
 }
 
 export interface Site {
@@ -71,6 +72,19 @@ export interface CreateKeyBody {
   expires_at?: string;
 }
 
+// Connection is one MCP connector authorization (an OAuth consent), aggregating
+// all tokens it issued. Revoking it deletes those tokens.
+export interface Connection {
+  id: string;
+  client_id: string;
+  client_name: string;
+  user: string;
+  grants: Grant[];
+  created_at: string;
+  last_used_at?: string;
+  expires_at: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -133,6 +147,11 @@ export const api = {
     }),
 
   deleteKey: (id: number) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
+
+  listConnections: () => request<{ connections: Connection[] }>("/api/mcp/connections"),
+
+  revokeConnection: (id: string) =>
+    request<void>(`/api/mcp/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
 function sitePath(group: string, slug: string): string {

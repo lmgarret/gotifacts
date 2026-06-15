@@ -5,7 +5,13 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/lmgarret/gotifacts/internal/keys"
 )
+
+func pubGrant(target string) []Grant {
+	return []Grant{{Kind: GrantGroup, Target: target, Permissions: []keys.Capability{keys.CapPublish}}}
+}
 
 func TestOAuthClientRoundTrip(t *testing.T) {
 	ctx := context.Background()
@@ -39,8 +45,8 @@ func TestAuthCodeSingleUseAndExpiry(t *testing.T) {
 
 	code := AuthCode{
 		Hash: "h1", ClientID: "c", User: "alice", RedirectURI: "https://x/cb",
-		CodeChallenge: "ch", CodeChallengeMethod: "S256", Scope: "publish",
-		Group: "claude", ExpiresAt: time.Now().Add(time.Minute),
+		CodeChallenge: "ch", CodeChallengeMethod: "S256", Grants: pubGrant("claude"),
+		ExpiresAt: time.Now().Add(time.Minute),
 	}
 	if err := st.CreateAuthCode(ctx, code); err != nil {
 		t.Fatal(err)
@@ -49,17 +55,20 @@ func TestAuthCodeSingleUseAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consume: %v", err)
 	}
-	if got.User != "alice" || got.Group != "claude" {
+	if got.User != "alice" || len(got.Grants) != 1 || got.Grants[0].Target != "claude" {
 		t.Fatalf("unexpected code: %+v", got)
+	}
+	if !keys.HasCapability(got.Grants[0].Permissions, keys.CapPublish) {
+		t.Fatalf("grant lost publish capability: %+v", got.Grants[0])
 	}
 	// Second consume must fail — codes are single-use.
 	if _, err := st.ConsumeAuthCode(ctx, "h1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("reuse: want ErrNotFound, got %v", err)
 	}
 
-	// Expired code is consumed-and-rejected.
 	expired := AuthCode{Hash: "h2", ClientID: "c", User: "bob", RedirectURI: "https://x/cb",
-		CodeChallenge: "ch", CodeChallengeMethod: "S256", ExpiresAt: time.Now().Add(-time.Minute)}
+		CodeChallenge: "ch", CodeChallengeMethod: "S256", Grants: pubGrant("claude"),
+		ExpiresAt: time.Now().Add(-time.Minute)}
 	if err := st.CreateAuthCode(ctx, expired); err != nil {
 		t.Fatal(err)
 	}
@@ -72,8 +81,8 @@ func TestTokenFindExpiryAndDelete(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 
-	good := Token{Hash: "a", Kind: "access", ClientID: "c", User: "alice",
-		Scope: "publish", Group: "claude", ExpiresAt: time.Now().Add(time.Hour)}
+	good := Token{Hash: "a", ConnID: "conn1", Kind: "access", ClientID: "c", User: "alice",
+		Grants: pubGrant("claude"), ExpiresAt: time.Now().Add(time.Hour)}
 	if err := st.CreateToken(ctx, good); err != nil {
 		t.Fatal(err)
 	}
@@ -81,16 +90,15 @@ func TestTokenFindExpiryAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find: %v", err)
 	}
-	if got.User != "alice" || got.Group != "claude" {
+	if got.User != "alice" || got.ConnID != "conn1" || len(got.Grants) != 1 {
 		t.Fatalf("unexpected token: %+v", got)
 	}
-	// Wrong kind must not match.
 	if _, err := st.FindToken(ctx, "refresh", "a"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("wrong kind: want ErrNotFound, got %v", err)
 	}
 
-	expired := Token{Hash: "b", Kind: "access", ClientID: "c", User: "bob",
-		ExpiresAt: time.Now().Add(-time.Hour)}
+	expired := Token{Hash: "b", ConnID: "conn1", Kind: "access", ClientID: "c", User: "bob",
+		Grants: pubGrant("x"), ExpiresAt: time.Now().Add(-time.Hour)}
 	if err := st.CreateToken(ctx, expired); err != nil {
 		t.Fatal(err)
 	}
@@ -103,5 +111,47 @@ func TestTokenFindExpiryAndDelete(t *testing.T) {
 	}
 	if _, err := st.FindToken(ctx, "access", "a"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("after delete: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestConnectionsListAndRevoke(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_ = st.CreateOAuthClient(ctx, OAuthClient{ClientID: "cli", Name: "Claude", RedirectURIs: []string{"https://x/cb"}})
+
+	// One connection = an access + refresh token sharing a conn_id.
+	for _, kind := range []string{"access", "refresh"} {
+		if err := st.CreateToken(ctx, Token{
+			Hash: kind + "-tok", ConnID: "conn-A", Kind: kind, ClientID: "cli", User: "alice",
+			Grants: pubGrant("claude"), ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A second, expired connection must not appear.
+	_ = st.CreateToken(ctx, Token{Hash: "old", ConnID: "conn-B", Kind: "refresh", ClientID: "cli",
+		User: "bob", Grants: pubGrant("x"), ExpiresAt: time.Now().Add(-time.Hour)})
+
+	conns, err := st.ListConnections(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 active connection, got %d: %+v", len(conns), conns)
+	}
+	c := conns[0]
+	if c.ID != "conn-A" || c.User != "alice" || c.ClientName != "Claude" || len(c.Grants) != 1 {
+		t.Fatalf("unexpected connection: %+v", c)
+	}
+
+	// Revoking deletes every token under the conn_id.
+	if err := st.DeleteConnection(ctx, "conn-A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.FindToken(ctx, "access", "access-tok"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("access token survived revoke: %v", err)
+	}
+	if err := st.DeleteConnection(ctx, "conn-A"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("revoking again: want ErrNotFound, got %v", err)
 	}
 }

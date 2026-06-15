@@ -32,7 +32,11 @@ func testServer(t *testing.T) (*Server, *store.Store) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(cfg, st, http.NotFoundHandler(), log), st
+	srv, err := New(cfg, st, http.NotFoundHandler(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv, st
 }
 
 func mintKey(t *testing.T, st *store.Store, admin bool, grants []store.Grant) string {

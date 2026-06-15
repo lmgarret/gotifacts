@@ -6,9 +6,11 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -16,11 +18,21 @@ import (
 
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/keys"
+	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
+
+// labelRE validates a single group/site path label for consent grant targets.
+var labelRE = regexp.MustCompile(router.LabelPattern)
+
+// consentCapabilities is the fixed set of capabilities offered on the consent
+// screen, in display order. publish is pre-checked.
+var consentCapabilities = []keys.Capability{
+	keys.CapPublish, keys.CapPatch, keys.CapUnpublish, keys.CapRollback,
+}
 
 // RegisterPublic registers the machine-facing OAuth + MCP routes. These MUST be
 // served WITHOUT forward-auth — they authenticate via OAuth (PKCE, client creds,
@@ -181,15 +193,38 @@ type authParams struct {
 	State               string
 }
 
+// consentCap is one capability checkbox on the consent form.
+type consentCap struct {
+	Value   string
+	Checked bool
+}
+
+// consentData is the template model for the consent screen.
+type consentData struct {
+	ClientName          string
+	BaseHost            string
+	User                string
+	ClientID            string
+	RedirectURI         string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	State               string
+	CSRF                string
+	DefaultTarget       string
+	Capabilities        []consentCap
+}
+
 var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Authorize gotifacts connector</title>
-<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem}
+<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1rem}
 .card{border:1px solid #ddd;border-radius:8px;padding:1.5rem}button{font-size:1rem;padding:.5rem 1rem;border-radius:6px;border:0;cursor:pointer}
-.approve{background:#2563eb;color:#fff}.deny{background:#eee;margin-left:.5rem}</style></head>
+.approve{background:#2563eb;color:#fff}.deny{background:#eee;margin-left:.5rem}
+fieldset{border:1px solid #ddd;border-radius:6px;margin:1rem 0}label{display:block;margin:.25rem 0}
+input[type=text]{font-size:1rem;padding:.3rem;width:100%;box-sizing:border-box}</style></head>
 <body><div class="card">
 <h2>Authorize MCP connector</h2>
-<p><strong>{{.ClientName}}</strong> is requesting permission to publish sites to
-<code>{{.Group}}.{{.BaseHost}}</code> on your behalf, as <strong>{{.User}}</strong>.</p>
+<p><strong>{{.ClientName}}</strong> wants to manage sites on your behalf, as
+<strong>{{.User}}</strong>, on <code>{{.BaseHost}}</code>. Choose what it may do.</p>
 <form method="post" action="/mcp/oauth/authorize">
 <input type="hidden" name="client_id" value="{{.ClientID}}">
 <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
@@ -197,6 +232,14 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
 <input type="hidden" name="state" value="{{.State}}">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
+<fieldset><legend>Scope</legend>
+<label><input type="radio" name="target_kind" value="group" checked> Group subtree (and everything beneath it)</label>
+<label><input type="radio" name="target_kind" value="site"> A single site (exact <code>group/slug</code>)</label>
+<label>Target <input type="text" name="target" value="{{.DefaultTarget}}" placeholder="e.g. claude or claude/app"></label>
+</fieldset>
+<fieldset><legend>Capabilities</legend>
+{{range .Capabilities}}<label><input type="checkbox" name="capability" value="{{.Value}}"{{if .Checked}} checked{{end}}> {{.Value}}</label>
+{{end}}</fieldset>
 <button class="approve" name="action" value="approve" type="submit">Approve</button>
 <button class="deny" name="action" value="deny" type="submit">Deny</button>
 </form></div></body></html>`))
@@ -221,18 +264,23 @@ func (s *Service) HandleAuthorize(w http.ResponseWriter, r *http.Request, p *aut
 	if !ok {
 		return
 	}
+	caps := make([]consentCap, len(consentCapabilities))
+	for i, c := range consentCapabilities {
+		caps[i] = consentCap{Value: string(c), Checked: c == keys.CapPublish}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = consentTmpl.Execute(w, map[string]string{
-		"ClientName":          clientDisplayName(client),
-		"Group":               s.cfg.MCPGroup,
-		"BaseHost":            s.cfg.BaseDomain,
-		"User":                p.User,
-		"ClientID":            ap.ClientID,
-		"RedirectURI":         ap.RedirectURI,
-		"CodeChallenge":       ap.CodeChallenge,
-		"CodeChallengeMethod": ap.CodeChallengeMethod,
-		"State":               ap.State,
-		"CSRF":                s.csrfToken(p.User),
+	_ = consentTmpl.Execute(w, consentData{
+		ClientName:          clientDisplayName(client),
+		BaseHost:            s.cfg.BaseDomain,
+		User:                p.User,
+		ClientID:            ap.ClientID,
+		RedirectURI:         ap.RedirectURI,
+		CodeChallenge:       ap.CodeChallenge,
+		CodeChallengeMethod: ap.CodeChallengeMethod,
+		State:               ap.State,
+		CSRF:                s.csrfToken(p.User),
+		DefaultTarget:       s.cfg.MCPGroup,
+		Capabilities:        caps,
 	})
 }
 
@@ -255,6 +303,12 @@ func (s *Service) authorizeSubmit(w http.ResponseWriter, r *http.Request, p *aut
 		return
 	}
 
+	grant, err := parseConsentGrant(r)
+	if err != nil {
+		redirectWithError(w, r, ap.RedirectURI, ap.State, "invalid_scope", err.Error())
+		return
+	}
+
 	code, codeHash, err := randToken()
 	if err != nil {
 		redirectWithError(w, r, ap.RedirectURI, ap.State, "server_error", "could not issue code")
@@ -267,8 +321,7 @@ func (s *Service) authorizeSubmit(w http.ResponseWriter, r *http.Request, p *aut
 		RedirectURI:         ap.RedirectURI,
 		CodeChallenge:       ap.CodeChallenge,
 		CodeChallengeMethod: ap.CodeChallengeMethod,
-		Scope:               scopePublish,
-		Group:               s.cfg.MCPGroup,
+		Grants:              []store.Grant{grant},
 		ExpiresAt:           time.Now().Add(codeTTL),
 	}); err != nil {
 		redirectWithError(w, r, ap.RedirectURI, ap.State, "server_error", "could not persist code")
@@ -381,7 +434,12 @@ func (s *Service) grantAuthorizationCode(w http.ResponseWriter, r *http.Request)
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
 		return
 	}
-	s.issueTokens(w, r, clientID, ac.User, ac.Scope, ac.Group)
+	connID, err := randConnID()
+	if err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
+		return
+	}
+	s.issueTokens(w, r, connID, clientID, ac.User, ac.Grants)
 }
 
 func (s *Service) grantRefreshToken(w http.ResponseWriter, r *http.Request) {
@@ -399,12 +457,13 @@ func (s *Service) grantRefreshToken(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token is invalid or expired")
 		return
 	}
-	// Rotate: invalidate the presented refresh token before minting new ones.
+	// Rotate: invalidate the presented refresh token before minting new ones,
+	// reusing the connection id so the connection survives the rotation.
 	_ = s.store.DeleteToken(r.Context(), rec.Hash)
-	s.issueTokens(w, r, clientID, rec.User, rec.Scope, rec.Group)
+	s.issueTokens(w, r, rec.ConnID, clientID, rec.User, rec.Grants)
 }
 
-func (s *Service) issueTokens(w http.ResponseWriter, r *http.Request, clientID, user, scope, group string) {
+func (s *Service) issueTokens(w http.ResponseWriter, r *http.Request, connID, clientID, user string, grants []store.Grant) {
 	access, accessHash, err := randToken()
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
@@ -417,15 +476,15 @@ func (s *Service) issueTokens(w http.ResponseWriter, r *http.Request, clientID, 
 	}
 	now := time.Now()
 	if err := s.store.CreateToken(r.Context(), store.Token{
-		Hash: accessHash, Kind: "access", ClientID: clientID, User: user,
-		Scope: scope, Group: group, ExpiresAt: now.Add(s.cfg.MCPAccessTokenTTL),
+		Hash: accessHash, ConnID: connID, Kind: "access", ClientID: clientID, User: user,
+		Grants: grants, ExpiresAt: now.Add(s.cfg.MCPAccessTokenTTL),
 	}); err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not persist token")
 		return
 	}
 	if err := s.store.CreateToken(r.Context(), store.Token{
-		Hash: refreshHash, Kind: "refresh", ClientID: clientID, User: user,
-		Scope: scope, Group: group, ExpiresAt: now.Add(s.cfg.MCPRefreshTokenTTL),
+		Hash: refreshHash, ConnID: connID, Kind: "refresh", ClientID: clientID, User: user,
+		Grants: grants, ExpiresAt: now.Add(s.cfg.MCPRefreshTokenTTL),
 	}); err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not persist token")
 		return
@@ -437,8 +496,64 @@ func (s *Service) issueTokens(w http.ResponseWriter, r *http.Request, clientID, 
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.cfg.MCPAccessTokenTTL.Seconds()),
 		RefreshToken: refresh,
-		Scope:        scope,
+		Scope:        scopeFromGrants(grants),
 	})
+}
+
+// parseConsentGrant builds the single grant the approving user selected on the
+// consent form (target kind + target path + capabilities).
+func parseConsentGrant(r *http.Request) (store.Grant, error) {
+	kind := store.ParseGrantKind(r.PostForm.Get("target_kind"))
+	target := normalizeTarget(r.PostForm.Get("target"))
+	caps, err := keys.ParseCapabilities(strings.Join(r.PostForm["capability"], ","))
+	if err != nil {
+		return store.Grant{}, errors.New("select at least one capability")
+	}
+	if err := validateGrantTarget(kind, target); err != nil {
+		return store.Grant{}, err
+	}
+	return store.Grant{Kind: kind, Target: target, Permissions: caps}, nil
+}
+
+func normalizeTarget(t string) string {
+	return strings.Trim(strings.ToLower(strings.TrimSpace(t)), "/")
+}
+
+// validateGrantTarget rejects malformed targets. A group target may be empty
+// (global); a site target must name a concrete site.
+func validateGrantTarget(kind store.GrantKind, target string) error {
+	if target == "" {
+		if kind == store.GrantSite {
+			return errors.New("a site target is required")
+		}
+		return nil
+	}
+	segs := strings.Split(target, "/")
+	if len(segs) > router.MaxDepth {
+		return errors.New("target is too deep")
+	}
+	for _, seg := range segs {
+		if !labelRE.MatchString(seg) {
+			return errors.New("target contains an invalid label")
+		}
+	}
+	return nil
+}
+
+// scopeFromGrants renders the union of granted capabilities as an OAuth scope
+// string, for the token response (informational).
+func scopeFromGrants(grants []store.Grant) string {
+	seen := map[keys.Capability]bool{}
+	var caps []keys.Capability
+	for _, g := range grants {
+		for _, c := range g.Permissions {
+			if !seen[c] {
+				seen[c] = true
+				caps = append(caps, c)
+			}
+		}
+	}
+	return keys.JoinCapabilities(caps)
 }
 
 // authenticateClient resolves the client_id and verifies a client secret if the

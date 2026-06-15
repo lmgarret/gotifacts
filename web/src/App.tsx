@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { api, type Me } from "./api";
 import { Portal } from "./components/Portal";
 import { KeysView } from "./components/KeysView";
+import { ConnectionsView } from "./components/ConnectionsView";
 
-type View = "portal" | "keys";
+type View = "portal" | "keys" | "connections";
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -50,6 +51,14 @@ export function App() {
               API Keys
             </button>
           )}
+          {me.is_admin && me.mcp_enabled && (
+            <button
+              className={view === "connections" ? "active" : ""}
+              onClick={() => setView("connections")}
+            >
+              Connections
+            </button>
+          )}
         </nav>
         <div className="who">
           {me.user}
@@ -59,6 +68,7 @@ export function App() {
       <main>
         {view === "portal" && <Portal me={me} />}
         {view === "keys" && me.is_admin && <KeysView />}
+        {view === "connections" && me.is_admin && me.mcp_enabled && <ConnectionsView />}
       </main>
     </div>
   );

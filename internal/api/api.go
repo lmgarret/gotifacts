@@ -76,6 +76,9 @@ func (s *Server) Handler() http.Handler {
 	if s.mcp != nil {
 		mux.HandleFunc("GET /mcp/oauth/authorize", s.requireUser(s.mcp.HandleAuthorize))
 		mux.HandleFunc("POST /mcp/oauth/authorize", s.requireUser(s.mcp.HandleAuthorize))
+		// Connection management lives on the forward-auth management plane.
+		mux.HandleFunc("GET /api/mcp/connections", s.requireAdmin(s.handleListConnections))
+		mux.HandleFunc("DELETE /api/mcp/connections/{id}", s.requireAdmin(s.handleRevokeConnection))
 		s.mcp.RegisterPublic(mux)
 	}
 

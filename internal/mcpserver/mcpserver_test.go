@@ -19,6 +19,7 @@ import (
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/ingest"
+	"github.com/lmgarret/gotifacts/internal/keys"
 	"github.com/lmgarret/gotifacts/internal/store"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -191,6 +192,9 @@ func TestOAuthFlow(t *testing.T) {
 		"code_challenge_method": {"S256"},
 		"state":                 {"xyz"},
 		"csrf":                  {s.csrfToken("tester")},
+		"target_kind":           {"group"},
+		"target":                {"claude"},
+		"capability":            {"publish"},
 		"action":                {"approve"},
 	}
 	resp, err := noRedirect.Do(ctxReq(t, http.MethodPost, srv.URL+"/mcp/oauth/authorize",
@@ -224,13 +228,17 @@ func TestOAuthFlow(t *testing.T) {
 		t.Fatalf("bad token response: %+v", tok)
 	}
 
-	// The access token must verify and carry the configured group.
+	// The access token must verify and carry the consented grant.
 	ti, err := s.verifyToken(context.Background(), tok.AccessToken, nil)
 	if err != nil {
 		t.Fatalf("verifyToken: %v", err)
 	}
-	if ti.Extra["group"] != "claude" {
-		t.Fatalf("token group = %v", ti.Extra["group"])
+	p, _ := ti.Extra["principal"].(*auth.Principal)
+	if p == nil || !p.CanPublishTo("claude", "report") {
+		t.Fatalf("token principal missing publish grant on claude: %+v", p)
+	}
+	if p.CanPublishTo("other", "x") {
+		t.Fatalf("token principal should not publish outside claude")
 	}
 
 	// Wrong PKCE verifier must be rejected on a fresh code.
@@ -253,8 +261,13 @@ func TestOAuthFlow(t *testing.T) {
 func TestPublishSiteTool(t *testing.T) {
 	s, cfg := newTestService(t)
 	ctx := context.Background()
+	principal := &auth.Principal{
+		User:   "tester",
+		Source: auth.SourceAPIKey,
+		Grants: []store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}},
+	}
 	req := &mcpsdk.CallToolRequest{Extra: &mcpsdk.RequestExtra{
-		TokenInfo: &mcpauth.TokenInfo{UserID: "tester", Extra: map[string]any{"group": "claude"}},
+		TokenInfo: &mcpauth.TokenInfo{UserID: "tester", Extra: map[string]any{"principal": principal}},
 	}}
 
 	res, out, err := s.publishSite(ctx, req, publishInput{Slug: "report", HTML: "<!doctype html><h1>hi</h1>"})

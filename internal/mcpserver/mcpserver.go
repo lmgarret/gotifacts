@@ -75,9 +75,10 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 	}, s.publishSite)
 
 	streamHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	// No required scope at the middleware: a valid, unexpired token is admitted
+	// and the per-capability/target check happens in the tool via Principal.Can.
 	s.stream = mcpauth.RequireBearerToken(s.verifyToken, &mcpauth.RequireBearerTokenOptions{
 		ResourceMetadataURL: cfg.BaseURL() + "/.well-known/oauth-protected-resource",
-		Scopes:              []string{scopePublish},
 	})(streamHandler)
 
 	return s, nil
@@ -101,30 +102,23 @@ type publishOutput struct {
 }
 
 // publishSite is the MCP tool handler. It resolves the bearer principal from the
-// validated token, enforces the token's group restriction, and runs the same
-// publish path as POST /ingest/sites.
+// validated token, enforces the token's capability grants against the target
+// site, and runs the same publish path as POST /ingest/sites.
 func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, in publishInput) (*mcpsdk.CallToolResult, publishOutput, error) {
-	ti := req.Extra.TokenInfo
-	if ti == nil {
+	p := principalFromRequest(req)
+	if p == nil {
 		return errorResult("authentication required"), publishOutput{}, nil
 	}
-	restriction, _ := ti.Extra["group"].(string)
 
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
-		group = restriction
+		group = s.cfg.MCPGroup
 	}
 	if strings.TrimSpace(in.HTML) == "" {
 		return errorResult("html must not be empty"), publishOutput{}, nil
 	}
-
-	principal := &auth.Principal{
-		Scope:            keys.ScopePublish,
-		GroupRestriction: restriction,
-		Source:           auth.SourceAPIKey,
-	}
-	if !principal.CanPublishTo(group) {
-		return errorResult(fmt.Sprintf("not permitted to publish to group %q", group)), publishOutput{}, nil
+	if !p.CanPublishTo(group, in.Slug) {
+		return errorResult(fmt.Sprintf("this connection is not permitted to publish %q in group %q", in.Slug, group)), publishOutput{}, nil
 	}
 
 	meta := ingest.Meta{
@@ -138,25 +132,42 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	if err != nil {
 		return errorResult("publish failed: " + err.Error()), publishOutput{}, nil
 	}
-	s.log.Info("mcp publish", "user", ti.UserID, "group", res.Group, "slug", res.Slug)
+	s.log.Info("mcp publish", "user", p.User, "group", res.Group, "slug", res.Slug)
 	out := publishOutput{URL: res.URL, Group: res.Group, Slug: res.Slug}
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "Published to " + res.URL}},
 	}, out, nil
 }
 
+// principalFromRequest extracts the *auth.Principal that verifyToken stashed in
+// the bearer token's Extra map.
+func principalFromRequest(req *mcpsdk.CallToolRequest) *auth.Principal {
+	if req == nil || req.Extra == nil || req.Extra.TokenInfo == nil {
+		return nil
+	}
+	p, _ := req.Extra.TokenInfo.Extra["principal"].(*auth.Principal)
+	return p
+}
+
 // verifyToken is the bearer TokenVerifier for the MCP endpoint. It resolves an
-// opaque access token to its stored grant and surfaces the group restriction.
+// opaque access token to an API-key-equivalent Principal carrying the token's
+// grants, which the tool handler authorizes against the target site.
 func (s *Service) verifyToken(ctx context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
 	rec, err := s.store.FindToken(ctx, "access", keys.Hash(token))
 	if err != nil {
 		return nil, mcpauth.ErrInvalidToken
 	}
+	s.store.TouchToken(ctx, rec.Hash)
+	p := &auth.Principal{
+		User:   rec.User,
+		Grants: rec.Grants,
+		Source: auth.SourceAPIKey,
+	}
 	return &mcpauth.TokenInfo{
-		Scopes:     strings.Fields(rec.Scope),
+		Scopes:     []string{scopePublish},
 		Expiration: rec.ExpiresAt,
 		UserID:     rec.User,
-		Extra:      map[string]any{"group": rec.Group},
+		Extra:      map[string]any{"principal": p},
 	}, nil
 }
 
@@ -185,4 +196,13 @@ func randID() (string, error) {
 		return "", err
 	}
 	return "mcp-" + base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// randConnID returns a new opaque connection identifier.
+func randConnID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }

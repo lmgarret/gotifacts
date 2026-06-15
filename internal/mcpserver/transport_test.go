@@ -36,8 +36,9 @@ func TestPublishOverMCPTransport(t *testing.T) {
 
 	const token = "smoke-access-token"
 	if err := s.store.CreateToken(ctx, store.Token{
-		Hash: keys.Hash(token), Kind: "access", ClientID: "c", User: "tester",
-		Scope: scopePublish, Group: "claude", ExpiresAt: time.Now().Add(time.Hour),
+		Hash: keys.Hash(token), ConnID: "conn-smoke", Kind: "access", ClientID: "c", User: "tester",
+		Grants:    []store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}},
+		ExpiresAt: time.Now().Add(time.Hour),
 	}); err != nil {
 		t.Fatal(err)
 	}

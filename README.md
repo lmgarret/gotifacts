@@ -334,16 +334,28 @@ How it fits the two-plane model:
   Claude and must sit on the **no-forward-auth plane**, like `/ingest/*`.
   Authentication there is OAuth (PKCE, then a bearer access token).
 
-Tokens are `publish`-scoped and confined to `GOTIFACTS_MCP_GROUP` (default
-`claude`), so a connector can never publish outside that subtree. Dynamic Client
-Registration (RFC 7591) lets users add the connector by pasting the URL; it only
-issues a `client_id` and grants no access on its own. See the proxy examples for
-the exact routing split, and `.env.example` for all MCP settings.
+Tokens carry the same **grant model** as API keys: at the consent screen the
+approver picks a target — a **group** subtree or a single **site** — and the
+capabilities to allow (`publish`, `patch`, `unpublish`, `rollback`), prefilled
+from `GOTIFACTS_MCP_GROUP` (default `claude`) + `publish`. The connector can
+never act outside what was granted. Dynamic Client Registration (RFC 7591) lets
+users add the connector by pasting the URL; it only issues a `client_id` and
+grants no access on its own. See the proxy examples for the exact routing split,
+and `.env.example` for all MCP settings.
 
 To connect: in Claude → Settings → Connectors → *Add custom connector*, enter
-`https://<your-base-domain>/mcp`, complete the SSO consent, then ask Claude to
-publish a page. For the **API MCP connector** or **Claude Code**, the same
-server works with a token obtained via the OAuth flow.
+`https://<your-base-domain>/mcp`, complete the SSO consent (choosing the scope),
+then ask Claude to publish a page. For the **API MCP connector** or **Claude
+Code**, the same server works with a token obtained via the OAuth flow.
+
+**Managing connections.** Each consent creates a *connection* you can review and
+revoke. Admins see them in the portal's **Connections** view, via
+`GET /api/mcp/connections`, or headless:
+
+```sh
+gotifacts mcp connections        # list active connections (client, user, scope, last used)
+gotifacts mcp revoke --id <id>   # revoke one — the connector loses access immediately
+```
 
 ## Development
 
