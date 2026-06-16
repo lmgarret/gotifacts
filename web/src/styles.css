@@ -4,27 +4,27 @@
  * docs/src/styles/custom.css and docs/src/assets/logo-*.svg.
  */
 :root {
-  --bg: #f6f9f7;
+  --bg: #f9fafb;
   --surface: #ffffff;
-  --border: #dde6e0;
-  --text: #14201a;
-  --muted: #5d6b63;
+  --border: #e4e4e7;
+  --text: #18181b;
+  --muted: #71717a;
   --accent: #1a7f3c;
   --accent-strong: #16a34a;
   --accent-soft: #d4f3df;
   --danger: #dc2626;
   --warn: #b45309;
   --radius: 10px;
-  --shadow: 0 1px 3px rgba(20, 83, 45, 0.1);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0c1410;
-    --surface: #11201a;
-    --border: #25372d;
-    --text: #e3efe7;
-    --muted: #8ba496;
+    --bg: #111827;
+    --surface: #1f2937;
+    --border: #374151;
+    --text: #f9fafb;
+    --muted: #9ca3af;
     --accent: #6ee79b;
     --accent-strong: #208a43;
     --accent-soft: #11351f;
