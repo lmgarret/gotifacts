@@ -1,0 +1,540 @@
+openapi: 3.1.0
+info:
+  title: gotifacts HTTP API
+  version: "1.0.0"
+  description: |
+    gotifacts exposes two independent HTTP planes:
+
+    - **Management plane** (`/api/*`) — used by the browser portal. Authenticated
+      by a **forward-auth identity header** that your reverse proxy injects (it is
+      honored only from `GOTIFACTS_TRUSTED_PROXIES`). No API key ever lives in the
+      browser.
+    - **Ingest plane** (`/ingest/*`) — used by machines (CI, the Claude skill).
+      Authenticated by a scoped **API key** sent as `Authorization: Bearer <key>`.
+
+    Path parameters named `path` carry the full site path — the group segments
+    (0–2) followed by the slug, e.g. `claude/app`, `grp/sub/leaf`, or `demo` for a
+    flat site. Total depth (group segments + slug) must be ≤ 3, and each label must
+    match `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`.
+  license:
+    name: MIT
+    url: https://github.com/lmgarret/gotifacts/blob/main/LICENSE
+servers:
+  - url: https://example.com
+    description: Your gotifacts apex (base domain), fronted by your reverse proxy.
+
+tags:
+  - name: Management
+    description: Portal / management plane (`/api/*`), forward-auth authenticated.
+  - name: Ingest
+    description: Machine publish plane (`/ingest/*`), API-key authenticated.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/me:
+    get:
+      tags: [Management]
+      summary: Current user
+      description: Returns the authenticated forward-auth principal and instance facts.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The current user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/sites:
+    get:
+      tags: [Management]
+      summary: List sites
+      description: Returns both a flat list and a nested group tree.
+      security:
+        - forwardAuth: []
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Free-text search. }
+        - { name: tag, in: query, schema: { type: string }, description: Filter by tag. }
+        - { name: group, in: query, schema: { type: string }, description: Filter by group subtree. }
+        - { name: sort, in: query, schema: { type: string, enum: [date, title, slug] } }
+        - { name: hidden, in: query, schema: { type: boolean }, description: Include hidden sites (admin only). }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: offset, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Matching sites.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SitesResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Management]
+      summary: Upload a site (admin)
+      description: |
+        Manual upload from the portal. Same `multipart/form-data` body as
+        `POST /ingest/sites`. Requires an admin principal.
+      security:
+        - forwardAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/PublishBody" }
+      responses:
+        "200":
+          description: The published site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublishResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/sites/{path}:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    patch:
+      tags: [Management]
+      summary: Update site metadata (admin)
+      security:
+        - forwardAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SitePatch" }
+      responses:
+        "200":
+          description: The updated site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Management]
+      summary: Delete a site (admin)
+      security:
+        - forwardAuth: []
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/sites/{path}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    post:
+      tags: [Management]
+      summary: Roll back a site (admin)
+      description: Restores the latest archived version. Requires versioning enabled.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The restored site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/keys:
+    get:
+      tags: [Management]
+      summary: List API keys (admin)
+      description: Plaintext tokens are never returned.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The API keys.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeysResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Management]
+      summary: Create an API key (admin)
+      description: |
+        Returns the plaintext token **once** in the `key` field. The legacy
+        `{name, scope, group}` body is still accepted for backward compatibility.
+      security:
+        - forwardAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKeyRequest" }
+      responses:
+        "201":
+          description: The created key, including its plaintext token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedKey" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/keys/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    delete:
+      tags: [Management]
+      summary: Revoke an API key (admin)
+      security:
+        - forwardAuth: []
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/mcp/connections:
+    get:
+      tags: [Management]
+      summary: List MCP connections (admin)
+      description: Available only when `GOTIFACTS_MCP_ENABLED=true`.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: Active MCP connections.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionsResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/mcp/connections/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Management]
+      summary: Revoke an MCP connection (admin)
+      security:
+        - forwardAuth: []
+      responses:
+        "204": { description: Revoked; the connector loses access immediately. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /ingest/sites:
+    post:
+      tags: [Ingest]
+      summary: Publish (create or replace) a site
+      description: |
+        Requires the `publish` capability on the target group (admin keys always
+        pass). Idempotent: the same `group`/`slug` replaces the existing site.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/PublishBody" }
+      responses:
+        "200":
+          description: The published site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublishResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /ingest/sites/{path}:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    patch:
+      tags: [Ingest]
+      summary: Update site metadata
+      description: Requires the `patch` capability on the target group.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SitePatch" }
+      responses:
+        "200":
+          description: The updated site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Ingest]
+      summary: Delete (unpublish) a site
+      description: Requires the `unpublish` capability on the target group.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /ingest/sites/{path}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    post:
+      tags: [Ingest]
+      summary: Roll back a site
+      description: |
+        Requires the `rollback` capability on the target group. Restores the
+        latest archived version (versioning must be enabled).
+      responses:
+        "200":
+          description: The restored site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: A scoped gotifacts API key (`gtf_…`) for the ingest plane.
+    forwardAuth:
+      type: apiKey
+      in: header
+      name: Remote-User
+      description: |
+        The forward-auth identity header injected by your reverse proxy (its name
+        is configurable via `GOTIFACTS_FORWARD_AUTH_HEADER`). gotifacts honors it
+        **only** from peers within `GOTIFACTS_TRUSTED_PROXIES`. Never send this
+        header yourself — your proxy strips any client-supplied copy.
+
+  parameters:
+    SitePath:
+      name: path
+      in: path
+      required: true
+      description: Full site path — group segments (0–2) plus the slug, e.g. `claude/app` or `demo`.
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Invalid request (bad path, malformed body, or missing content).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid credentials.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Authenticated, but not permitted for this target/capability.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such site, key, or connection.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
+
+    Site:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        group: { type: string, description: "Group path (0–2 segments); empty for a flat site." }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string }
+        date: { type: string }
+        tags: { type: array, items: { type: string } }
+        repo: { type: string }
+        preview: { type: string, description: "Optional preview image URL used by the portal instead of a live iframe." }
+        hidden: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, group, slug, title, hidden, created_at, updated_at]
+
+    SiteMeta:
+      type: object
+      description: The `meta` part of a publish request.
+      properties:
+        group: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        description: { type: string }
+        date: { type: string }
+        tags: { type: array, items: { type: string } }
+        repo: { type: string }
+        preview: { type: string }
+        hidden: { type: boolean }
+      required: [group, slug]
+
+    PublishBody:
+      type: object
+      description: |
+        `multipart/form-data` with a JSON `meta` part and **either** a `bundle`
+        (`.tar.gz` containing a top-level `index.html`) **or** an `index`
+        (a single self-contained HTML document).
+      properties:
+        meta:
+          $ref: "#/components/schemas/SiteMeta"
+        bundle:
+          type: string
+          format: binary
+          description: A `.tar.gz` archive with a top-level `index.html`.
+        index:
+          type: string
+          format: binary
+          description: A single self-contained HTML document (becomes `index.html`).
+      required: [meta]
+
+    PublishResult:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        group: { type: string }
+        slug: { type: string }
+        updated_at: { type: string, format: date-time }
+      required: [url, group, slug, updated_at]
+
+    SitePatch:
+      type: object
+      description: Metadata-only update. Omit a field to leave it unchanged.
+      properties:
+        title: { type: string }
+        description: { type: string }
+        date: { type: string }
+        tags: { type: array, items: { type: string } }
+        repo: { type: string }
+        preview: { type: string }
+        hidden: { type: boolean }
+
+    Capability:
+      type: string
+      enum: [publish, unpublish, rollback, patch]
+
+    Grant:
+      type: object
+      properties:
+        kind: { type: string, enum: [group, site] }
+        target:
+          type: string
+          description: "A group path (e.g. `docs`, empty = all sites) or a `group/slug` for a single site."
+        permissions:
+          type: array
+          items: { $ref: "#/components/schemas/Capability" }
+      required: [kind, target, permissions]
+
+    APIKey:
+      type: object
+      description: An API key as returned by listing (never includes the plaintext token).
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        admin: { type: boolean }
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/Grant" }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+      required: [id, name, admin, grants, created_at]
+
+    CreatedKey:
+      allOf:
+        - $ref: "#/components/schemas/APIKey"
+        - type: object
+          properties:
+            key:
+              type: string
+              description: The plaintext token (`gtf_…`). Shown only once, at creation.
+          required: [key]
+
+    CreateKeyRequest:
+      type: object
+      properties:
+        name: { type: string }
+        admin: { type: boolean }
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/Grant" }
+        expires_at:
+          type: string
+          description: RFC3339 instant or `YYYY-MM-DD`. Omit for a key that never expires.
+      required: [name]
+
+    Connection:
+      type: object
+      description: An MCP connector connection created by an OAuth consent.
+      properties:
+        id: { type: string }
+        client_id: { type: string }
+        client_name: { type: string }
+        user: { type: string }
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/Grant" }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+      required: [id, client_id, user, grants, created_at, expires_at]
+
+    TreeNode:
+      type: object
+      properties:
+        name: { type: string }
+        path: { type: string }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/TreeNode" }
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/Site" }
+      required: [name, path]
+
+    Me:
+      type: object
+      properties:
+        user: { type: string }
+        is_admin: { type: boolean }
+        base_domain: { type: string }
+        mcp_enabled: { type: boolean }
+      required: [user, is_admin, base_domain]
+
+    SitesResponse:
+      type: object
+      properties:
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/Site" }
+        tree: { $ref: "#/components/schemas/TreeNode" }
+        count: { type: integer }
+
+    KeysResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/APIKey" }
+
+    ConnectionsResponse:
+      type: object
+      properties:
+        connections:
+          type: array
+          items: { $ref: "#/components/schemas/Connection" }

@@ -100,8 +100,26 @@ or production.
 
 ## Docs
 
-When you change behavior, update the relevant docs: `README.md`, `.env.example`,
-and the proxy snippets under `examples/`.
+The documentation site is an Astro [Starlight](https://starlight.astro.build/)
+project in [`docs/`](docs/), organized by the
+[Diátaxis](https://diataxis.fr/) framework and deployed to GitHub Pages by
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml).
+
+```sh
+cd docs
+npm install
+npm run dev      # local preview at http://localhost:4321/gotifacts
+npm run build    # production build; fails on broken internal links
+```
+
+The HTTP API reference is generated from [`docs/openapi.yaml`](docs/openapi.yaml)
+by `starlight-openapi`. **When you change any route or request/response struct in
+`internal/api`, `internal/ingest`, or `internal/store`, update `docs/openapi.yaml`
+(and the affected pages) in the same change**, then run `npm run build` to
+confirm it renders and links pass. See [`AGENTS.md`](AGENTS.md).
+
+When you change behavior, also update the relevant top-level docs: `README.md`,
+`.env.example`, and the proxy snippets under `examples/`.
 
 ## Commit / PR guidelines
 

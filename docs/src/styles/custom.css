@@ -1,0 +1,43 @@
+/* gotifacts docs — custom styles */
+
+/*
+ * Green accent palette, aligned with the paper-plane logo. Drives links,
+ * active sidebar items, the splash "Get started" button, focus rings, etc.
+ * Dark theme is the default (:root); light theme overrides below.
+ */
+:root {
+  --sl-color-accent-low: #11351f;
+  --sl-color-accent: #208a43;
+  --sl-color-accent-high: #b3ecc4;
+  --sl-color-text-accent: #6ee79b;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #d4f3df;
+  --sl-color-accent: #1a7f3c;
+  --sl-color-accent-high: #0c3a1f;
+  --sl-color-text-accent: #15803d;
+}
+
+
+/*
+ * Build-time Mermaid (@beoe, inline + darkScheme "class") emits both a light
+ * and a dark SVG and relies on CSS to hide the inactive one. @beoe assumes a
+ * `.dark` class; Starlight toggles theme via `:root[data-theme]`, so wire the
+ * two together here — otherwise both diagrams render at once.
+ */
+:root[data-theme='dark'] .beoe-light {
+  display: none;
+}
+:root[data-theme='light'] .beoe-dark {
+  display: none;
+}
+
+/* Center diagrams and let them scale to the content width. */
+figure.beoe {
+  margin-inline: auto;
+  text-align: center;
+}
+figure.beoe svg {
+  height: auto;
+  max-width: 100%;
+}
