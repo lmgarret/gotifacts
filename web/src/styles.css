@@ -1,24 +1,34 @@
+/*
+ * Color palette aligned with the docs site (Astro Starlight) and the
+ * paper-plane logo: a green accent in light and dark schemes. See
+ * docs/src/styles/custom.css and docs/src/assets/logo-*.svg.
+ */
 :root {
-  --bg: #f7f8fa;
+  --bg: #f6f9f7;
   --surface: #ffffff;
-  --border: #e2e5ea;
-  --text: #1c2128;
-  --muted: #6b7280;
-  --accent: #4f46e5;
+  --border: #dde6e0;
+  --text: #14201a;
+  --muted: #5d6b63;
+  --accent: #1a7f3c;
+  --accent-strong: #16a34a;
+  --accent-soft: #d4f3df;
   --danger: #dc2626;
   --warn: #b45309;
   --radius: 10px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow: 0 1px 3px rgba(20, 83, 45, 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --accent: #7c83ff;
+    --bg: #0c1410;
+    --surface: #11201a;
+    --border: #25372d;
+    --text: #e3efe7;
+    --muted: #8ba496;
+    --accent: #6ee79b;
+    --accent-strong: #208a43;
+    --accent-soft: #11351f;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -107,9 +117,46 @@ a {
 }
 
 .brand {
-  font-weight: 700;
-  font-size: 1.15rem;
-  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Wordmark logo: light/dark variants swapped by color scheme. */
+.logo {
+  height: 1.9rem;
+  width: auto;
+  display: block;
+}
+
+.logo-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .logo-light {
+    display: none;
+  }
+  .logo-dark {
+    display: block;
+  }
+}
+
+/* Larger logo used on the auth/error splash. */
+.brand-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.brand-logo .logo {
+  height: 3rem;
 }
 
 .topbar nav {
@@ -131,7 +178,7 @@ a {
 }
 
 .badge {
-  background: var(--accent);
+  background: var(--accent-strong);
   color: #fff;
   border-radius: 999px;
   padding: 0.05rem 0.5rem;
