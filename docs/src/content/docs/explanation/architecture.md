@@ -11,26 +11,46 @@ deliberately small — one static binary, SQLite, and a volume.
 
 ## The big picture
 
-```mermaid
-flowchart TB
-    client([Client])
-    proxy["Reverse proxy<br/>(operator-provided: TLS, forward-auth/SSO)"]
-    client --> proxy
+```d2
+# Recolor the D2 palette to the docs' green brand (see src/styles/custom.css).
+vars: {
+  d2-config: {
+    theme-overrides: {
+      B1: "#0c3a1f"; B2: "#11351f"; B3: "#15803d"
+      B4: "#1a7f3c"; B5: "#6ee79b"; B6: "#d4f3df"
+    }
+    dark-theme-overrides: {
+      B1: "#d4f3df"; B2: "#b3ecc4"; B3: "#6ee79b"
+      B4: "#208a43"; B5: "#11351f"; B6: "#0c3a1f"
+    }
+  }
+}
 
-    proxy -->|"apex / and /api/* — forward-auth ON"| mgmt["Portal UI + management API"]
-    proxy -->|"apex /ingest/* — forward-auth OFF"| ingest["Machine publish API (API key)"]
-    proxy -->|"*.base, *.*.base"| sites["Static site content"]
+direction: down
 
-    subgraph gotifacts["gotifacts (Go, static scratch binary) — HTTP :8080"]
-        router{"Host router"}
-        mgmt --> router
-        ingest --> router
-        sites --> router
-        router -->|"Host == base"| apex["portal + /api + /ingest"]
-        router -->|"else"| serve["serve site files"]
-    end
+client: Client { shape: oval }
+proxy: "Reverse proxy\n(operator-provided: TLS, forward-auth/SSO)"
+mgmt: Portal UI + management API
+ingest: Machine publish API (API key)
+sites: Static site content
+volume: "Volume (rw)\n/data/gotifacts.db\n/data/sites/<group>/<slug>/" { shape: cylinder }
 
-    gotifacts --> volume[("Volume (rw)<br/>/data/gotifacts.db<br/>/data/sites/&lt;group&gt;/&lt;slug&gt;/")]
+gotifacts: "gotifacts (Go, static scratch binary) — HTTP :8080" {
+  router: Host router { shape: diamond }
+  apex: portal + /api + /ingest
+  serve: serve site files
+  router -> apex: "Host == base"
+  router -> serve: "else"
+}
+
+client -> proxy
+proxy -> mgmt: "apex / and /api/* — forward-auth ON"
+proxy -> ingest: "apex /ingest/* — forward-auth OFF"
+proxy -> sites: "*.base, *.*.base"
+mgmt -> gotifacts.router
+ingest -> gotifacts.router
+sites -> gotifacts.router
+gotifacts -> volume
 ```
 
 ## Host-based routing

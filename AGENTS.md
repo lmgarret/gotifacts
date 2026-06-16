@@ -56,11 +56,13 @@ cd docs && npm run build   # renders the spec + validates internal links
   this at build time.
 - Content is organized by [Diátaxis](https://diataxis.fr/): `tutorials/`,
   `guides/` (how-to), `reference/`, `explanation/`.
-- Diagrams are ```` ```mermaid ```` blocks rendered to SVG at build time and
-  cached in the committed `docs/.beoe/`. After adding/editing a diagram (or
-  bumping `playwright`), regenerate the cache — `cd docs && npx playwright
-  install chromium && rm -rf .beoe && npm run build` — and commit `docs/.beoe`.
-  See `docs/README.md`.
+- **Diagrams: author in [D2](https://d2lang.com), not Mermaid.** Use ```` ```d2 ````
+  code blocks — they render to SVG at build time via the D2 binary (a single
+  static Go binary, no headless browser). Install it once with `curl -fsSL
+  https://d2lang.com/install.sh | sh -s --` so `cd docs && npm run build` can
+  render locally; CI installs the same pinned release. D2 gives cleaner layouts
+  and a browser-free build; new diagrams should be D2 and existing Mermaid should
+  be migrated when touched. See `docs/README.md`.
 - **Moving to a custom domain later:** in `docs/astro.config.mjs` set `site` to
   the domain and remove `base`, add `docs/public/CNAME` containing the domain,
   update the `starlight-links-validator` `exclude` entries, and find-replace the

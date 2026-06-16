@@ -20,24 +20,14 @@
 
 
 /*
- * Build-time Mermaid (@beoe, inline + darkScheme "class") emits both a light
- * and a dark SVG and relies on CSS to hide the inactive one. @beoe assumes a
- * `.dark` class; Starlight toggles theme via `:root[data-theme]`, so wire the
- * two together here — otherwise both diagrams render at once.
+ * Build-time D2 diagrams (astro-d2, inline SVG). The dark variant lives inside
+ * the SVG's own `prefers-color-scheme: dark` media query, so no class toggling
+ * is needed here — just center the diagram and let it scale to the content
+ * width.
  */
-:root[data-theme='dark'] .beoe-light {
-  display: none;
-}
-:root[data-theme='light'] .beoe-dark {
-  display: none;
-}
-
-/* Center diagrams and let them scale to the content width. */
-figure.beoe {
+svg[data-d2-version] {
+  display: block;
   margin-inline: auto;
-  text-align: center;
-}
-figure.beoe svg {
-  height: auto;
   max-width: 100%;
+  height: auto;
 }
