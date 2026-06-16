@@ -37,6 +37,7 @@ export default defineConfig({
       editLink: {
         baseUrl: 'https://github.com/lmgarret/gotifacts/edit/main/docs/',
       },
+      customCss: ['./src/styles/custom.css'],
       plugins: [
         // Auto-render the HTTP API reference from the hand-authored spec.
         starlightOpenAPI([
