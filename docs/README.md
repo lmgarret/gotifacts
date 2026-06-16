@@ -26,22 +26,19 @@ npm run preview  # preview the production build
 ## Diagrams (build-time Mermaid)
 
 Diagrams are authored as ```` ```mermaid ```` code blocks and rendered to static
-SVG at build time by `@beoe/rehype-mermaid`. The rendered SVGs are cached in
-`.beoe/cache.sqlite`, **which is committed** so CI builds from cache and never
-launches or downloads a browser.
-
-When you add or edit a diagram, regenerate the cache locally (needs a Chromium
-matching the pinned `playwright` version):
+SVG at build time by `@beoe/rehype-mermaid`, which drives a headless Chromium
+through Playwright. Both `npm run dev` and `npm run build` render them on the
+fly, so building the docs locally needs a Chromium installed once:
 
 ```sh
 npx playwright install chromium   # one-time, downloads the matching browser
-rm -rf .beoe && npm run build      # re-renders and re-seeds the cache
-git add .beoe                      # commit the refreshed cache
+npm run build
 ```
 
-> The cache key is tied to the diagram source **and** the pinned `playwright`
-> version. If you bump `playwright`, regenerate the cache in the same change,
-> otherwise CI (which has no browser) will fail to render.
+CI ([`.github/workflows/docs.yml`](../.github/workflows/docs.yml)) installs
+Chromium with `npx playwright install --with-deps chromium` before building, so
+diagrams render in GitHub Actions the same way they do locally — no cache to
+keep in sync.
 
 ## Custom domain
 
