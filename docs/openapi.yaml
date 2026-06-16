@@ -388,15 +388,20 @@ components:
       type: object
       description: |
         `multipart/form-data` with a JSON `meta` part and **either** a `bundle`
-        (`.tar.gz` containing a top-level `index.html`) **or** an `index`
-        (a single self-contained HTML document).
+        (a `.tar.gz` or `.zip` archive containing an `index.html`) **or** an
+        `index` (a single self-contained HTML document). The archive format is
+        detected from its magic bytes, not the field or file name.
       properties:
         meta:
           $ref: "#/components/schemas/SiteMeta"
         bundle:
           type: string
           format: binary
-          description: A `.tar.gz` archive with a top-level `index.html`.
+          description: |
+            A `.tar.gz` or `.zip` archive containing a top-level `index.html`.
+            For `.zip`, if every file lives under one common top-level directory
+            (e.g. a zipped folder `site/index.html`), that directory is stripped
+            so `index.html` lands at the site root.
         index:
           type: string
           format: binary

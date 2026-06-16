@@ -823,3 +823,51 @@ button.ghost {
   color: var(--muted);
   font-weight: 600;
 }
+
+/* Add-site button + deploy modal */
+.toolbar .add-site {
+  margin-left: 0.6rem;
+}
+
+.sitemodal {
+  max-width: 38rem;
+}
+
+.field-row {
+  display: flex;
+  gap: 0.8rem;
+}
+
+.field-row .field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.field-hint.warn {
+  color: var(--warn);
+}
+
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1.6rem 1rem;
+  text-align: center;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone:hover,
+.dropzone.dragging {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.dropzone.filled {
+  border-style: solid;
+  color: var(--fg);
+}
+
+.site-reveal a {
+  word-break: break-all;
+}
