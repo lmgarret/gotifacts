@@ -1,13 +1,21 @@
-# gotifacts
+<p align="center">
+  <img src="docs/src/assets/logo-dark.svg" alt="gotifacts" width="256" />
+</p>
 
-[![CI](https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml/badge.svg)](https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lmgarret/gotifacts)](https://goreportcard.com/report/github.com/lmgarret/gotifacts)
+<p align="center">
+    A single, self-hosted <b>Go</b> service that <b>hosts static sites</b> by host-based routing and serves a <b>dynamic portal</b> to browse them.
+</p>
 
-A single, self-hosted **Go** service that **hosts static sites** by host-based
-routing and serves a **dynamic portal** to browse them. You publish sites over
-an HTTP API; gotifacts stores them on a volume with a **SQLite** registry and
-serves them at `https://<slug>.<group>.<base>`.
+<p align="center">
+  <a href="https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml"><img src="https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://goreportcard.com/report/github.com/lmgarret/gotifacts"><img src="https://goreportcard.com/badge/github.com/lmgarret/gotifacts" alt="Go Report Card" /></a>
+</p>
+
+---
+
+You publish sites over an HTTP API; gotifacts stores them on a volume with a 
+**SQLite** registry and serves them at `https://<slug>.<group>.<base>`.
 
 gotifacts runs behind **any** reverse proxy you provide (nginx, Caddy, …) for
 TLS and SSO/forward-auth. It serves plain HTTP on one port, never TLS, and
@@ -40,22 +48,26 @@ It's organized by the [Diátaxis](https://diataxis.fr/) framework:
 
 ## How it works
 
-```
-reverse proxy (operator-provided: TLS, forward-auth/SSO)
-  ├── apex "/" and "/api/*"   → forward-auth ON  → portal UI + management API
-  ├── apex "/ingest/*"        → forward-auth OFF → machine publish API (API-key)
-  └── *.base, *.*.base        → static site content
-                                      │  HTTP :8080
-                                      ▼
-                 ┌──────────────────────────────────────────┐
-                 │  gotifacts (Go, static scratch binary)     │
-                 │  Host router:                              │
-                 │   Host == base → portal + /api + /ingest   │
-                 │   else         → serve site files          │
-                 │  Registry + API keys: SQLite (modernc)     │
-                 └──────────────┬─────────────────────────────┘
-                                ▼ volume (rw)
-        /data/gotifacts.db  +  /data/sites/<group…>/<slug>/{index.html, assets…}
+```mermaid
+flowchart TB
+  client([Client])
+  proxy["Reverse proxy<br/>(operator-provided: TLS, forward-auth/SSO)"]
+  client --> proxy
+
+  proxy -->|"apex / and /api/* — forward-auth ON"| mgmt["Portal UI + management API"]
+  proxy -->|"apex /ingest/* — forward-auth OFF"| ingest["Machine publish API (API key)"]
+  proxy -->|"*.base, *.*.base"| sites["Static site content"]
+
+  subgraph gotifacts["gotifacts (Go, static scratch binary) — HTTP :8080"]
+      router{"Host router"}
+      mgmt --> router
+      ingest --> router
+      sites --> router
+      router -->|"Host == base"| apex["portal + /api + /ingest"]
+      router -->|"else"| serve["serve site files"]
+  end
+
+  gotifacts --> volume[("Volume (rw)<br/>/data/gotifacts.db<br/>/data/sites/&lt;group&gt;/&lt;slug&gt;/")]
 ```
 
 The service routes purely by the request `Host`: the apex host serves the portal
