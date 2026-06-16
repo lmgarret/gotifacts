@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="gotifacts">
+  <g fill="none" stroke="#16a34a" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round">
+    <!-- abstract paper plane: outline + center fold -->
+    <path d="M55 13 L9 31 L28 37 L34 53 L40 39 Z"/>
+    <path d="M55 13 L28 37"/>
+  </g>
+</svg>

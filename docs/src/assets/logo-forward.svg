@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="gotifacts">
+  <g fill="none" stroke="#16a34a" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round">
+    <!-- abstract page with a folded corner -->
+    <path d="M18 12 H36 L46 22 V52 H18 Z"/>
+    <path d="M36 12 V22 H46"/>
+  </g>
+  <!-- fast-forward chevrons (flat) -->
+  <g fill="#16a34a">
+    <path d="M22 28 L30 34 L22 40 Z"/>
+    <path d="M31 28 L39 34 L31 40 Z"/>
+  </g>
+</svg>
