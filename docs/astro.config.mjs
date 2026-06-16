@@ -6,11 +6,11 @@ import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightImageZoom from 'starlight-image-zoom';
 import starlightLinksValidator from 'starlight-links-validator';
-import rehypeMermaid from '@beoe/rehype-mermaid';
+import astroD2 from 'astro-d2';
 
-// Build-time Mermaid → SVG. Diagrams are rendered with Playwright (a headless
-// Chromium) during `astro build`. CI installs Chromium before building — see
-// .github/workflows/docs.yml and docs/README.md.
+// Diagrams are authored as ```d2 code blocks and rendered to static SVG at build
+// time by the D2 binary (a single static Go binary — no headless browser). CI
+// installs D2 before building. See .github/workflows/docs.yml and docs/README.md.
 
 // https://astro.build/config
 export default defineConfig({
@@ -78,17 +78,15 @@ export default defineConfig({
         { label: 'Explanation', items: [{ autogenerate: { directory: 'explanation' } }] },
       ],
     }),
+    // Render ```d2 code blocks to SVG via the D2 binary. `inline` embeds the SVG
+    // in the HTML; the dark variant is carried inside the SVG's own
+    // prefers-color-scheme media query.
+    astroD2({
+      inline: true,
+      layout: 'elk',
+      pad: 20,
+      theme: { default: '0', dark: '200' },
+    }),
     sitemap(),
   ],
-  markdown: {
-    rehypePlugins: [
-      [
-        rehypeMermaid,
-        {
-          strategy: 'inline', // inline the SVG directly in the HTML
-          darkScheme: 'class', // Starlight toggles dark mode via a class
-        },
-      ],
-    ],
-  },
 });

@@ -23,22 +23,26 @@ npm run preview  # preview the production build
   layer** — see [`../AGENTS.md`](../AGENTS.md).
 - `astro.config.mjs` — site config, plugins, and the sidebar.
 
-## Diagrams (build-time Mermaid)
+## Diagrams (build-time D2)
 
-Diagrams are authored as ```` ```mermaid ```` code blocks and rendered to static
-SVG at build time by `@beoe/rehype-mermaid`, which drives a headless Chromium
-through Playwright. Both `npm run dev` and `npm run build` render them on the
-fly, so building the docs locally needs a Chromium installed once:
+**Author all diagrams in [D2](https://d2lang.com), not Mermaid.** Diagrams are
+```` ```d2 ```` code blocks rendered to static SVG at build time by
+[`astro-d2`](https://astro-d2.vercel.app/), which shells out to the **D2 binary**
+— a single static Go binary, no headless browser. The rendered SVG is inlined in
+the page; its dark variant rides along inside the SVG's own
+`prefers-color-scheme: dark` media query.
+
+Building locally needs the D2 binary on your `PATH` (the
+[`D2_VERSION`](../.github/workflows/docs.yml) pinned in CI):
 
 ```sh
-npx playwright install chromium   # one-time, downloads the matching browser
+curl -fsSL https://d2lang.com/install.sh | sh -s --   # one-time
 npm run build
 ```
 
-CI ([`.github/workflows/docs.yml`](../.github/workflows/docs.yml)) installs
-Chromium with `npx playwright install --with-deps chromium` before building, so
-diagrams render in GitHub Actions the same way they do locally — no cache to
-keep in sync.
+CI ([`.github/workflows/docs.yml`](../.github/workflows/docs.yml)) installs the
+same pinned D2 release before building. Generated SVGs land in `public/d2/`,
+which is gitignored.
 
 ## Custom domain
 

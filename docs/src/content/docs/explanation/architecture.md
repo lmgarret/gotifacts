@@ -11,26 +11,32 @@ deliberately small — one static binary, SQLite, and a volume.
 
 ## The big picture
 
-```mermaid
-flowchart TB
-    client([Client])
-    proxy["Reverse proxy<br/>(operator-provided: TLS, forward-auth/SSO)"]
-    client --> proxy
+```d2
+direction: down
 
-    proxy -->|"apex / and /api/* — forward-auth ON"| mgmt["Portal UI + management API"]
-    proxy -->|"apex /ingest/* — forward-auth OFF"| ingest["Machine publish API (API key)"]
-    proxy -->|"*.base, *.*.base"| sites["Static site content"]
+client: Client { shape: oval }
+proxy: "Reverse proxy\n(operator-provided: TLS, forward-auth/SSO)"
+mgmt: Portal UI + management API
+ingest: Machine publish API (API key)
+sites: Static site content
+volume: "Volume (rw)\n/data/gotifacts.db\n/data/sites/<group>/<slug>/" { shape: cylinder }
 
-    subgraph gotifacts["gotifacts (Go, static scratch binary) — HTTP :8080"]
-        router{"Host router"}
-        mgmt --> router
-        ingest --> router
-        sites --> router
-        router -->|"Host == base"| apex["portal + /api + /ingest"]
-        router -->|"else"| serve["serve site files"]
-    end
+gotifacts: "gotifacts (Go, static scratch binary) — HTTP :8080" {
+  router: Host router { shape: diamond }
+  apex: portal + /api + /ingest
+  serve: serve site files
+  router -> apex: "Host == base"
+  router -> serve: "else"
+}
 
-    gotifacts --> volume[("Volume (rw)<br/>/data/gotifacts.db<br/>/data/sites/&lt;group&gt;/&lt;slug&gt;/")]
+client -> proxy
+proxy -> mgmt: "apex / and /api/* — forward-auth ON"
+proxy -> ingest: "apex /ingest/* — forward-auth OFF"
+proxy -> sites: "*.base, *.*.base"
+mgmt -> gotifacts.router
+ingest -> gotifacts.router
+sites -> gotifacts.router
+gotifacts -> volume
 ```
 
 ## Host-based routing

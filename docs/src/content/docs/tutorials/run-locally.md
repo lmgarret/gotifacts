@@ -126,10 +126,16 @@ curl -s http://gotifacts.localhost/api/me
 
 ## What you built
 
-```mermaid
-flowchart LR
-    apex["http://gotifacts.localhost"] --> portal["portal + /api + /ingest"]
-    site["http://&lt;slug&gt;.&lt;group&gt;.gotifacts.localhost"] --> content["your published sites"]
+```d2
+direction: right
+
+apex: "http://gotifacts.localhost"
+portal: portal + /api + /ingest
+site: "http://<slug>.<group>.gotifacts.localhost"
+content: your published sites
+
+apex -> portal
+site -> content
 ```
 
 You have a running instance with an admin session. Next, publish something into
