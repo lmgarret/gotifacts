@@ -15,8 +15,9 @@ import (
 )
 
 // parseMultipartPublish parses a publish request: a JSON "meta" part plus either
-// a "bundle" (.tar.gz) or an "index" (single HTML) part. The returned reader
-// streams the content; cleanup must be called when done.
+// a "bundle" (.tar.gz or .zip, distinguished by magic bytes) or an "index"
+// (single HTML) part. The returned reader streams the content; cleanup must be
+// called when done.
 func parseMultipartPublish(w http.ResponseWriter, r *http.Request, maxBytes int64) (ingest.Meta, ingest.Kind, io.Reader, func(), error) {
 	noop := func() {}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
@@ -27,11 +28,12 @@ func parseMultipartPublish(w http.ResponseWriter, r *http.Request, maxBytes int6
 	}
 
 	var (
-		meta    ingest.Meta
-		haveMet bool
-		tmp     *os.File
-		kind    ingest.Kind
-		haveCnt bool
+		meta      ingest.Meta
+		haveMet   bool
+		tmp       *os.File
+		kind      ingest.Kind
+		haveCnt   bool
+		isArchive bool
 	)
 	cleanup := func() {
 		if tmp != nil {
@@ -63,7 +65,7 @@ func parseMultipartPublish(w http.ResponseWriter, r *http.Request, maxBytes int6
 				return ingest.Meta{}, 0, nil, noop, fmt.Errorf("provide exactly one of bundle or index")
 			}
 			if part.FormName() == "bundle" {
-				kind = ingest.KindBundle
+				isArchive = true
 			} else {
 				kind = ingest.KindIndex
 			}
@@ -91,7 +93,32 @@ func parseMultipartPublish(w http.ResponseWriter, r *http.Request, maxBytes int6
 		cleanup()
 		return ingest.Meta{}, 0, nil, noop, err
 	}
+	if isArchive {
+		kind, err = sniffArchiveKind(tmp)
+		if err != nil {
+			cleanup()
+			return ingest.Meta{}, 0, nil, noop, err
+		}
+	}
 	return meta, kind, tmp, cleanup, nil
+}
+
+// sniffArchiveKind inspects the leading magic bytes of a spooled bundle to tell
+// gzip-tar from zip, then rewinds. The form field name is not trusted.
+func sniffArchiveKind(f *os.File) (ingest.Kind, error) {
+	var magic [4]byte
+	n, _ := io.ReadFull(f, magic[:])
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+	switch {
+	case n >= 2 && magic[0] == 0x1f && magic[1] == 0x8b:
+		return ingest.KindBundle, nil
+	case n >= 4 && magic[0] == 'P' && magic[1] == 'K' && magic[2] == 0x03 && magic[3] == 0x04:
+		return ingest.KindZip, nil
+	default:
+		return 0, fmt.Errorf("unsupported bundle format: expected a .tar.gz or .zip archive")
+	}
 }
 
 // spoolToTemp buffers a multipart part to a temp file so it can be re-read.

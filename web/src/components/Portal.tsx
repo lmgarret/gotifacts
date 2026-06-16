@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Me, type Site, type TreeNode } from "../api";
 import { GroupSection } from "./GroupSection";
 import { SiteDetail } from "./SiteDetail";
+import { SiteCreateModal } from "./SiteCreateModal";
 
 interface Props {
   me: Me;
@@ -9,6 +10,7 @@ interface Props {
 
 export function Portal({ me }: Props) {
   const [tree, setTree] = useState<TreeNode | null>(null);
+  const [sites, setSites] = useState<Site[]>([]);
   const [count, setCount] = useState(0);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -18,12 +20,14 @@ export function Portal({ me }: Props) {
   const [sort, setSort] = useState("date");
   const [showHidden, setShowHidden] = useState(false);
   const [selected, setSelected] = useState<Site | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
     api
       .listSites({ q, tag, sort, hidden: me.is_admin && showHidden })
       .then((res) => {
         setTree(res.tree);
+        setSites(res.sites ?? []);
         setCount(res.count);
         const tags = new Set<string>();
         (res.sites ?? []).forEach((s) => s.tags?.forEach((t) => tags.add(t)));
@@ -32,6 +36,11 @@ export function Portal({ me }: Props) {
       })
       .catch((e: Error) => setError(e.message));
   }, [q, tag, sort, showHidden, me.is_admin]);
+
+  const groups = useMemo(
+    () => [...new Set(sites.map((s) => s.group).filter(Boolean))].sort(),
+    [sites],
+  );
 
   useEffect(() => {
     const id = setTimeout(load, 150);
@@ -73,6 +82,11 @@ export function Portal({ me }: Props) {
           </label>
         )}
         <span className="count">{count} site{count === 1 ? "" : "s"}</span>
+        {me.is_admin && (
+          <button className="add-site" onClick={() => setCreating(true)}>
+            + Add site
+          </button>
+        )}
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -99,6 +113,16 @@ export function Portal({ me }: Props) {
             setSelected(null);
             load();
           }}
+        />
+      )}
+
+      {creating && (
+        <SiteCreateModal
+          base={me.base_domain}
+          existing={sites.map((s) => ({ group: s.group, slug: s.slug }))}
+          groups={groups}
+          onClose={() => setCreating(false)}
+          onCreated={load}
         />
       )}
     </div>

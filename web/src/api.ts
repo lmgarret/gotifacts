@@ -112,6 +112,53 @@ export interface ListParams {
   hidden?: boolean;
 }
 
+// PublishResult mirrors ingest.Result returned by POST /api/sites.
+export interface PublishResult {
+  url: string;
+  group: string;
+  slug: string;
+  updated_at: string;
+}
+
+export interface PublishMeta {
+  group?: string;
+  slug: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  repo?: string;
+  preview?: string;
+  hidden?: boolean;
+}
+
+// publishSite uploads a site via the admin multipart endpoint. A single .html
+// file is sent as the "index" part; a .zip/.tar.gz archive as the "bundle" part
+// (the server distinguishes them by magic bytes).
+async function publishSite(meta: PublishMeta, file: File): Promise<PublishResult> {
+  const form = new FormData();
+  form.append("meta", JSON.stringify(meta));
+  form.append(isArchive(file) ? "bundle" : "index", file, file.name);
+  const res = await fetch("/api/sites", { method: "POST", body: form });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.error) msg = body.error;
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<PublishResult>;
+}
+
+// isArchive reports whether a file should be sent as a bundle (zip/tar.gz)
+// rather than a single index.html.
+export function isArchive(file: File): boolean {
+  const n = file.name.toLowerCase();
+  return n.endsWith(".zip") || n.endsWith(".tar.gz") || n.endsWith(".tgz");
+}
+
 export const api = {
   me: () => request<Me>("/api/me"),
 
@@ -137,6 +184,8 @@ export const api = {
 
   rollbackSite: (group: string, slug: string) =>
     request<Site>(`/api/sites/${sitePath(group, slug)}/rollback`, { method: "POST" }),
+
+  publishSite,
 
   listKeys: () => request<{ keys: ApiKey[] }>("/api/keys"),
 

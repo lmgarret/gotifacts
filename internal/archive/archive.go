@@ -4,6 +4,7 @@ package archive
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -94,6 +95,100 @@ func ExtractTarGz(r io.Reader, dest string, lim Limits) error {
 		return ErrNoIndex
 	}
 	return nil
+}
+
+// ExtractZip extracts a zip archive (read from ra, of the given size) into dest,
+// enforcing limits and rejecting unsafe paths. dest must already exist. When
+// every file lives under one common top-level directory, that directory is
+// stripped so a zipped folder (e.g. site/index.html) lands at the root. It
+// returns an error if no top-level index.html is present after unwrapping.
+func ExtractZip(ra io.ReaderAt, size int64, dest string, lim Limits) error {
+	zr, err := zip.NewReader(ra, size)
+	if err != nil {
+		return fmt.Errorf("zip: %w", err)
+	}
+
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+
+	prefix := singleRootPrefix(zr.File)
+	var (
+		entries  int
+		written  int64
+		hasIndex bool
+	)
+	for _, f := range zr.File {
+		entries++
+		if entries > lim.MaxEntries {
+			return ErrTooManyEntries
+		}
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		if f.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: %s", ErrUnsupported, f.Name)
+		}
+		// Validate the raw name against traversal/absolute escapes before
+		// trusting it, matching the tar path's defenses.
+		if _, err := safeJoin(absDest, f.Name); err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(cleanRel(f.Name), prefix)
+		if rel == "" || rel == "." {
+			continue
+		}
+		if rel == "index.html" {
+			hasIndex = true
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("zip entry %s: %w", f.Name, err)
+		}
+		n, err := writeFile(rc, filepath.Join(absDest, filepath.FromSlash(rel)), &written, lim.MaxBytes)
+		_ = rc.Close()
+		if err != nil {
+			return err
+		}
+		written = n
+	}
+	if !hasIndex {
+		return ErrNoIndex
+	}
+	return nil
+}
+
+// singleRootPrefix returns the trailing-slashed top-level directory shared by
+// every regular file in the archive (e.g. "site/"), or "" if files live at
+// more than one top level — including when any file sits at the archive root.
+func singleRootPrefix(files []*zip.File) string {
+	var root string
+	for _, f := range files {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		c := cleanRel(f.Name)
+		if c == "" || c == "." {
+			continue
+		}
+		i := strings.IndexByte(c, '/')
+		if i < 0 {
+			return "" // a file at the archive root: nothing to unwrap
+		}
+		top := c[:i]
+		switch root {
+		case "":
+			root = top
+		case top:
+		default:
+			return "" // more than one top-level directory
+		}
+	}
+	if root == "" {
+		return ""
+	}
+	return root + "/"
 }
 
 // cleanRel returns the cleaned, slash-normalized relative form of name.
