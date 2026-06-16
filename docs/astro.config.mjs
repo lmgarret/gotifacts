@@ -6,6 +6,14 @@ import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightImageZoom from 'starlight-image-zoom';
 import starlightLinksValidator from 'starlight-links-validator';
+import rehypeMermaid from '@beoe/rehype-mermaid';
+import { getCache } from '@beoe/cache';
+
+// Build-time Mermaid → SVG. Diagrams are rendered once with Playwright and
+// stored in the committed @beoe cache (docs/.beoe), so CI builds render from
+// cache and never launch (or download) a headless browser. Regenerate the
+// cache locally when you add or edit a diagram — see docs/README.md.
+const cache = await getCache();
 
 // https://astro.build/config
 export default defineConfig({
@@ -68,4 +76,16 @@ export default defineConfig({
     }),
     sitemap(),
   ],
+  markdown: {
+    rehypePlugins: [
+      [
+        rehypeMermaid,
+        {
+          strategy: 'inline', // inline the SVG directly in the HTML
+          darkScheme: 'class', // Starlight toggles dark mode via a class
+          cache,
+        },
+      ],
+    ],
+  },
 });

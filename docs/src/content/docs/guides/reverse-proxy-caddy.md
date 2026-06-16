@@ -22,7 +22,7 @@ A complete, commented example lives in the repo at
 [`examples/caddy/Caddyfile`](https://github.com/lmgarret/gotifacts/blob/main/examples/caddy/Caddyfile).
 The essentials:
 
-```caddy
+```text
 # SECURITY: never trust a client-supplied identity header.
 (strip_identity) {
     request_header -Remote-User
@@ -57,7 +57,7 @@ Caddy wildcards match a single label, so one and two label levels need separate
 blocks. Both strip the identity header and add the framing policy for
 [portal thumbnails](/gotifacts/guides/portal-thumbnails/):
 
-```caddy
+```text
 *.example.com,
 *.*.example.com {
     import strip_identity
@@ -72,7 +72,7 @@ If you enable the [MCP connector](/gotifacts/guides/connect-claude-mcp/), add a
 `handle` that bypasses forward-auth for the machine endpoints, while
 `/mcp/oauth/authorize` falls through to the authenticated catch-all:
 
-```caddy
+```text
 handle /mcp /mcp/oauth/token /mcp/oauth/register /.well-known/oauth-* {
     reverse_proxy gotifacts:8080
 }

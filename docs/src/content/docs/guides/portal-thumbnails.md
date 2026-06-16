@@ -27,7 +27,7 @@ add_header Content-Security-Policy "frame-ancestors https://example.com" always;
 
 **Caddy**:
 
-```caddy
+```text
 header Content-Security-Policy "frame-ancestors https://example.com"
 ```
 

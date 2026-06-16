@@ -11,22 +11,26 @@ deliberately small — one static binary, SQLite, and a volume.
 
 ## The big picture
 
-```
-reverse proxy (operator-provided: TLS, forward-auth/SSO)
-  ├── apex "/" and "/api/*"   → forward-auth ON  → portal UI + management API
-  ├── apex "/ingest/*"        → forward-auth OFF → machine publish API (API-key)
-  └── *.base, *.*.base        → static site content
-                                      │  HTTP :8080
-                                      ▼
-                 ┌──────────────────────────────────────────┐
-                 │  gotifacts (Go, static scratch binary)     │
-                 │  Host router:                              │
-                 │   Host == base → portal + /api + /ingest   │
-                 │   else         → serve site files          │
-                 │  Registry + API keys: SQLite (modernc)     │
-                 └──────────────┬─────────────────────────────┘
-                                ▼ volume (rw)
-        /data/gotifacts.db  +  /data/sites/<group…>/<slug>/{index.html, assets…}
+```mermaid
+flowchart TB
+    client([Client])
+    proxy["Reverse proxy<br/>(operator-provided: TLS, forward-auth/SSO)"]
+    client --> proxy
+
+    proxy -->|"apex / and /api/* — forward-auth ON"| mgmt["Portal UI + management API"]
+    proxy -->|"apex /ingest/* — forward-auth OFF"| ingest["Machine publish API (API key)"]
+    proxy -->|"*.base, *.*.base"| sites["Static site content"]
+
+    subgraph gotifacts["gotifacts (Go, static scratch binary) — HTTP :8080"]
+        router{"Host router"}
+        mgmt --> router
+        ingest --> router
+        sites --> router
+        router -->|"Host == base"| apex["portal + /api + /ingest"]
+        router -->|"else"| serve["serve site files"]
+    end
+
+    gotifacts --> volume[("Volume (rw)<br/>/data/gotifacts.db<br/>/data/sites/&lt;group&gt;/&lt;slug&gt;/")]
 ```
 
 ## Host-based routing

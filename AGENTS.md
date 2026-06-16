@@ -56,6 +56,11 @@ cd docs && npm run build   # renders the spec + validates internal links
   this at build time.
 - Content is organized by [Diátaxis](https://diataxis.fr/): `tutorials/`,
   `guides/` (how-to), `reference/`, `explanation/`.
+- Diagrams are ```` ```mermaid ```` blocks rendered to SVG at build time and
+  cached in the committed `docs/.beoe/`. After adding/editing a diagram (or
+  bumping `playwright`), regenerate the cache — `cd docs && npx playwright
+  install chromium && rm -rf .beoe && npm run build` — and commit `docs/.beoe`.
+  See `docs/README.md`.
 - **Moving to a custom domain later:** in `docs/astro.config.mjs` set `site` to
   the domain and remove `base`, add `docs/public/CNAME` containing the domain,
   update the `starlight-links-validator` `exclude` entries, and find-replace the
