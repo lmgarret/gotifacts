@@ -127,6 +127,20 @@ curl -s http://gotifacts.localhost/api/me
 ## What you built
 
 ```d2
+# Recolor the D2 palette to the docs' green brand (see src/styles/custom.css).
+vars: {
+  d2-config: {
+    theme-overrides: {
+      B1: "#0c3a1f"; B2: "#11351f"; B3: "#15803d"
+      B4: "#1a7f3c"; B5: "#6ee79b"; B6: "#d4f3df"
+    }
+    dark-theme-overrides: {
+      B1: "#d4f3df"; B2: "#b3ecc4"; B3: "#6ee79b"
+      B4: "#208a43"; B5: "#11351f"; B6: "#0c3a1f"
+    }
+  }
+}
+
 direction: right
 
 apex: "http://gotifacts.localhost"
