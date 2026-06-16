@@ -27,6 +27,8 @@ export default defineConfig({
       title: 'gotifacts',
       description:
         'A single, self-hosted Go service that hosts static sites by host-based routing and serves a dynamic portal to browse them.',
+      logo: { src: './src/assets/logo.svg', replacesTitle: false },
+      favicon: '/favicon.svg',
       social: [
         {
           icon: 'github',
