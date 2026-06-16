@@ -36,6 +36,8 @@ func main() {
 		err = runServe(ctx, args)
 	case "keys":
 		err = runKeys(ctx, args)
+	case "mcp":
+		err = runMCP(ctx, args)
 	case "version", "--version", "-version":
 		fmt.Printf("gotifacts %s (commit %s, built %s)\n", version, commit, date)
 	case "help", "-h", "--help":
@@ -59,6 +61,8 @@ Commands:
                                           Create an API key (prints token once)
   keys list                               List API keys
   keys revoke --id ID                     Delete an API key
+  mcp connections                         List active MCP connections
+  mcp revoke --id ID                      Revoke an MCP connection
 
 Configuration is via environment variables; see .env.example.
 `)

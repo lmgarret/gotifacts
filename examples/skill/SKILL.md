@@ -14,6 +14,14 @@ This skill uploads a single self-contained `index.html` to a
 [gotifacts](https://github.com/lmgarret/gotifacts) instance via its machine
 ingest API, then reports the resulting public URL.
 
+> **Surface note.** This skill needs `GOTIFACTS_URL` and `GOTIFACTS_API_KEY` in
+> the environment, so it works in Claude Code, CI, and the API code-execution
+> tool — anywhere *you* control the environment. It does **not** work in default
+> claude.ai / Claude mobile conversations, which cannot inject those variables.
+> For those, enable the gotifacts **MCP connector** (`GOTIFACTS_MCP_ENABLED`) and
+> add `https://<base-domain>/mcp` as a custom connector — it authenticates via
+> OAuth and exposes an equivalent `publish_site` tool. See the project README.
+
 ## Required environment
 
 | Variable | Meaning |

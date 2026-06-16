@@ -18,6 +18,7 @@ func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request, p *auth.Princi
 		"user":        p.User,
 		"is_admin":    p.Admin,
 		"base_domain": s.cfg.BaseDomain,
+		"mcp_enabled": s.mcp != nil,
 	})
 }
 
