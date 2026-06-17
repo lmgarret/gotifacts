@@ -28,6 +28,7 @@
 svg[data-d2-version] {
   display: block;
   margin-inline: auto;
-  max-width: 100%;
+  /* Keep diagrams from dominating the content column. */
+  max-width: min(100%, 30rem);
   height: auto;
 }

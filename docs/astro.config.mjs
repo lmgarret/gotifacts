@@ -7,6 +7,47 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightImageZoom from 'starlight-image-zoom';
 import starlightLinksValidator from 'starlight-links-validator';
 import astroD2 from 'astro-d2';
+import { visit } from 'unist-util-visit';
+
+// astro-d2 emits each diagram's dark palette behind a
+// `@media (prefers-color-scheme: dark)` query, so it follows the OS rather than
+// Starlight's light/dark toggle. Rewrite that query to Starlight's
+// `:root[data-theme='dark']` selector so diagrams track the in-page theme. The
+// inline SVG lives under `:root[data-theme]`, so its `.d2-*` rules just need the
+// data-theme prefix.
+function rescopeD2DarkMode(svg) {
+  const marker = '@media screen and (prefers-color-scheme:dark){';
+  let idx;
+  while ((idx = svg.indexOf(marker)) !== -1) {
+    let i = idx + marker.length;
+    let depth = 1;
+    const start = i;
+    for (; i < svg.length && depth > 0; i++) {
+      if (svg[i] === '{') depth++;
+      else if (svg[i] === '}') depth--;
+      if (depth === 0) break;
+    }
+    const rules = svg
+      .slice(start, i)
+      .replace(/(^|})(\s*)\.d2-/g, (_m, brace, ws) => `${brace}${ws}:root[data-theme='dark'] .d2-`);
+    svg = svg.slice(0, idx) + rules + svg.slice(i + 1);
+  }
+  return svg;
+}
+
+function rehypeD2DarkMode() {
+  return (tree) => {
+    visit(tree, (node) => {
+      if (
+        (node.type === 'raw' || node.type === 'html') &&
+        typeof node.value === 'string' &&
+        node.value.includes('data-d2-version')
+      ) {
+        node.value = rescopeD2DarkMode(node.value);
+      }
+    });
+  };
+}
 
 // Diagrams are authored as ```d2 code blocks and rendered to static SVG at build
 // time by the D2 binary (a single static Go binary — no headless browser). CI
@@ -89,4 +130,8 @@ export default defineConfig({
     }),
     sitemap(),
   ],
+  markdown: {
+    // Make D2's dark palette follow Starlight's theme toggle (see above).
+    rehypePlugins: [rehypeD2DarkMode],
+  },
 });
