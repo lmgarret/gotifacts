@@ -1,6 +1,7 @@
 package api
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,6 +10,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/lmgarret/gotifacts/internal/config"
@@ -32,7 +35,11 @@ func testServer(t *testing.T) (*Server, *store.Store) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(cfg, st, http.NotFoundHandler(), log), st
+	srv, err := New(cfg, st, http.NotFoundHandler(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv, st
 }
 
 func mintKey(t *testing.T, st *store.Store, admin bool, grants []store.Grant) string {
@@ -72,6 +79,98 @@ func publishMultipart(t *testing.T, group, slug string) (io.Reader, string) {
 		t.Fatal(err)
 	}
 	return &buf, mw.FormDataContentType()
+}
+
+// zipBundleMultipart builds a publish body whose "bundle" part is a zip archive
+// with the given entries, exercising magic-byte sniffing and zip extraction.
+func zipBundleMultipart(t *testing.T, group, slug string, files map[string]string) (io.Reader, string) {
+	t.Helper()
+	var zbuf bytes.Buffer
+	zw := zip.NewWriter(&zbuf)
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	metaPart, err := mw.CreateFormField("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewEncoder(metaPart).Encode(map[string]any{"group": group, "slug": slug, "title": "t"}); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := mw.CreateFormField("bundle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bundle.Write(zbuf.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &buf, mw.FormDataContentType()
+}
+
+// TestIngestPublishZipBundle verifies a zip bundle is sniffed, extracted, and
+// served from disk — including unwrapping a single top-level directory.
+func TestIngestPublishZipBundle(t *testing.T) {
+	srv, st := testServer(t)
+	h := srv.Handler()
+	tok := mintKey(t, st, true, nil)
+
+	body, ct := zipBundleMultipart(t, "previews", "pr-1", map[string]string{
+		"app/index.html":     "<!doctype html><title>z</title>",
+		"app/assets/app.css": "body{}",
+	})
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", body)
+	r.Header.Set("Content-Type", ct)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("zip publish: got %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+	for _, rel := range []string{"index.html", filepath.Join("assets", "app.css")} {
+		if _, err := os.Stat(filepath.Join(srv.cfg.SitesDir(), "previews", "pr-1", rel)); err != nil {
+			t.Fatalf("expected %s on disk: %v", rel, err)
+		}
+	}
+}
+
+// TestIngestPublishRejectsUnknownBundle ensures a "bundle" part that is neither
+// gzip-tar nor zip is rejected with 400 rather than silently mis-handled.
+func TestIngestPublishRejectsUnknownBundle(t *testing.T) {
+	srv, st := testServer(t)
+	h := srv.Handler()
+	tok := mintKey(t, st, true, nil)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	metaPart, _ := mw.CreateFormField("meta")
+	_ = json.NewEncoder(metaPart).Encode(map[string]any{"group": "g", "slug": "s", "title": "t"})
+	bundle, _ := mw.CreateFormField("bundle")
+	_, _ = bundle.Write([]byte("not an archive"))
+	_ = mw.Close()
+
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://example.com/ingest/sites", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown bundle: got %d, want 400", w.Code)
+	}
 }
 
 // TestIngestRoutesRequireMatchingGrant locks the invariant that every /ingest/*

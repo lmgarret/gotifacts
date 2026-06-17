@@ -5,6 +5,9 @@
 # Key ideas:
 #   * apex "/" and "/api/*"  -> forward-auth ON; inject the identity header
 #   * apex "/ingest/*"       -> forward-auth OFF; API-key guarded by gotifacts
+#   * MCP (optional, if GOTIFACTS_MCP_ENABLED): machine endpoints (/mcp,
+#     /mcp/oauth/token, /mcp/oauth/register, /.well-known/oauth-*) -> auth OFF;
+#     the browser consent endpoint /mcp/oauth/authorize -> auth ON (catch-all)
 #   * *.<base> / *.*.<base>  -> serve site content + frame-ancestors header
 #   * ALWAYS strip any client-supplied identity header before injecting it
 #   * gotifacts must see Caddy's IP in GOTIFACTS_TRUSTED_PROXIES
@@ -31,7 +34,16 @@ example.com {
 		reverse_proxy gotifacts:8080
 	}
 
+	# --- MCP machine plane: forward-auth OFF (OAuth enforced by gotifacts) ---
+	# Only needed if GOTIFACTS_MCP_ENABLED. Called server-to-server by the MCP
+	# client, so no SSO. /mcp/oauth/authorize is intentionally absent — it falls
+	# through to the forward-auth catch-all below (it is a browser consent page).
+	handle /mcp /mcp/oauth/token /mcp/oauth/register /.well-known/oauth-* {
+		reverse_proxy gotifacts:8080
+	}
+
 	# --- Management plane: forward-auth ON ----------------------------------
+	# Also serves /mcp/oauth/authorize: the consent screen is SSO-authenticated.
 	handle {
 		forward_auth your-sso-backend:9091 {
 			uri /api/verify?rd=https://auth.example.com

@@ -49,9 +49,12 @@ npm run build    # emits web/dist, embedded by the Go binary
 npm run dev      # local dev server, proxies /api to localhost:8080
 ```
 
-> **Note:** `web/dist` is committed so that `go test`/`go build` always have an
-> embed target. After changing the frontend, run `npm run build` and commit the
-> regenerated `web/dist`.
+> **Note:** `web/dist` is gitignored (only an empty `web/dist/.gitkeep`
+> placeholder is tracked, which satisfies the `go:embed` target). `go test`/`go
+> build` work on a clean checkout without a frontend build; until you run `npm
+> run build`, the portal HTML route returns a 500 "frontend not built" while the
+> API keeps working. Run `npm run build` to serve the UI locally — there is no
+> need to commit the result.
 
 ## Running a full local dev environment
 
@@ -97,8 +100,26 @@ or production.
 
 ## Docs
 
-When you change behavior, update the relevant docs: `README.md`, `.env.example`,
-and the proxy snippets under `examples/`.
+The documentation site is an Astro [Starlight](https://starlight.astro.build/)
+project in [`docs/`](docs/), organized by the
+[Diátaxis](https://diataxis.fr/) framework and deployed to GitHub Pages by
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml).
+
+```sh
+cd docs
+npm install
+npm run dev      # local preview at http://localhost:4321/gotifacts
+npm run build    # production build; fails on broken internal links
+```
+
+The HTTP API reference is generated from [`docs/openapi.yaml`](docs/openapi.yaml)
+by `starlight-openapi`. **When you change any route or request/response struct in
+`internal/api`, `internal/ingest`, or `internal/store`, update `docs/openapi.yaml`
+(and the affected pages) in the same change**, then run `npm run build` to
+confirm it renders and links pass. See [`AGENTS.md`](AGENTS.md).
+
+When you change behavior, also update the relevant top-level docs: `README.md`,
+`.env.example`, and the proxy snippets under `examples/`.
 
 ## Commit / PR guidelines
 

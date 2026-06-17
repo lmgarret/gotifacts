@@ -1,13 +1,21 @@
-# gotifacts
+<p align="center">
+  <img src="docs/src/assets/logo-dark.svg" alt="gotifacts" width="256" />
+</p>
 
-[![CI](https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml/badge.svg)](https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lmgarret/gotifacts)](https://goreportcard.com/report/github.com/lmgarret/gotifacts)
+<p align="center">
+    A single, self-hosted <b>Go</b> service that <b>hosts static sites</b> by host-based routing and serves a <b>dynamic portal</b> to browse them.
+</p>
 
-A single, self-hosted **Go** service that **hosts static sites** by host-based
-routing and serves a **dynamic portal** to browse them. You publish sites over
-an HTTP API; gotifacts stores them on a volume with a **SQLite** registry and
-serves them at `https://<slug>.<group>.<base>`.
+<p align="center">
+  <a href="https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml"><img src="https://github.com/lmgarret/gotifacts/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://goreportcard.com/report/github.com/lmgarret/gotifacts"><img src="https://goreportcard.com/badge/github.com/lmgarret/gotifacts" alt="Go Report Card" /></a>
+</p>
+
+---
+
+You publish sites over an HTTP API; gotifacts stores them on a volume with a 
+**SQLite** registry and serves them at `https://<slug>.<group>.<base>`.
 
 gotifacts runs behind **any** reverse proxy you provide (nginx, Caddy, …) for
 TLS and SSO/forward-auth. It serves plain HTTP on one port, never TLS, and
@@ -17,229 +25,58 @@ enforces its own authorization.
 - **SQLite + a volume** are the only state.
 - **No hardcoded domains/hosts/paths** — everything is configurable.
 
----
+## 📖 Documentation
 
-## Table of contents
+**Full documentation lives at → https://lmgarret.github.io/gotifacts**
 
-- [How it works](#how-it-works)
-- [Two-plane auth model](#two-plane-auth-model)
-- [URL ⇄ path convention](#url--path-convention)
-- [Scopes & API keys](#scopes--api-keys)
-- [API reference](#api-reference)
-- [Configuration](#configuration)
-- [Running with Docker](#running-with-docker)
-- [Reverse proxy setup](#reverse-proxy-setup)
-- [Security](#security)
-- [Publishing from CI or Claude](#publishing-from-ci-or-claude)
-- [Development](#development)
+It's organized by the [Diátaxis](https://diataxis.fr/) framework:
 
----
+- **Tutorials** — [run gotifacts locally](https://lmgarret.github.io/gotifacts/tutorials/run-locally/)
+  and [publish your first site](https://lmgarret.github.io/gotifacts/tutorials/publish-first-site/).
+- **How-to guides** — [Docker](https://lmgarret.github.io/gotifacts/guides/deploy-with-docker/),
+  [nginx](https://lmgarret.github.io/gotifacts/guides/reverse-proxy-nginx/) /
+  [Caddy](https://lmgarret.github.io/gotifacts/guides/reverse-proxy-caddy/),
+  [API keys](https://lmgarret.github.io/gotifacts/guides/create-api-keys/),
+  [publishing from CI](https://lmgarret.github.io/gotifacts/guides/publish-from-ci/),
+  [Claude via MCP](https://lmgarret.github.io/gotifacts/guides/connect-claude-mcp/).
+- **Reference** — [configuration](https://lmgarret.github.io/gotifacts/reference/configuration/),
+  the [HTTP API](https://lmgarret.github.io/gotifacts/reference/api/), the
+  [CLI](https://lmgarret.github.io/gotifacts/reference/cli/).
+- **Explanation** — [architecture](https://lmgarret.github.io/gotifacts/explanation/architecture/),
+  the [two-plane auth model](https://lmgarret.github.io/gotifacts/explanation/auth-model/),
+  the [threat model](https://lmgarret.github.io/gotifacts/explanation/security/).
 
 ## How it works
 
-```
-reverse proxy (operator-provided: TLS, forward-auth/SSO)
-  ├── apex "/" and "/api/*"   → forward-auth ON  → portal UI + management API
-  ├── apex "/ingest/*"        → forward-auth OFF → machine publish API (API-key)
-  └── *.base, *.*.base        → static site content
-                                      │  HTTP :8080
-                                      ▼
-                 ┌──────────────────────────────────────────┐
-                 │  gotifacts (Go, static scratch binary)     │
-                 │  Host router:                              │
-                 │   Host == base → portal + /api + /ingest   │
-                 │   else         → serve site files          │
-                 │  Registry + API keys: SQLite (modernc)     │
-                 └──────────────┬─────────────────────────────┘
-                                ▼ volume (rw)
-        /data/gotifacts.db  +  /data/sites/<group…>/<slug>/{index.html, assets…}
-```
+```mermaid
+flowchart TB
+  client([Client])
+  proxy["Reverse proxy<br/>(operator-provided: TLS, forward-auth/SSO)"]
+  client --> proxy
 
-The service routes purely by the request `Host`:
+  proxy -->|"apex / and /api/* — forward-auth ON"| mgmt["Portal UI + management API"]
+  proxy -->|"apex /ingest/* — forward-auth OFF"| ingest["Machine publish API (API key)"]
+  proxy -->|"*.base, *.*.base"| sites["Static site content"]
 
-- **Apex host** (`== GOTIFACTS_BASE_DOMAIN`): serves the portal SPA, the
-  management API (`/api/*`), and the ingest API (`/ingest/*`).
-- **Any other host**: maps the host to a site directory and serves static files.
+  subgraph gotifacts["gotifacts (Go, static scratch binary) — HTTP :8080"]
+      router{"Host router"}
+      mgmt --> router
+      ingest --> router
+      sites --> router
+      router -->|"Host == base"| apex["portal + /api + /ingest"]
+      router -->|"else"| serve["serve site files"]
+  end
 
-## Two-plane auth model
-
-gotifacts has two independent authorization planes:
-
-| Plane | Routes | Authenticated by | Used by |
-| --- | --- | --- | --- |
-| **Management** | `/`, `/api/*` | a **forward-auth identity header** injected by your proxy | the browser (portal) |
-| **Ingest** | `/ingest/*` | a scoped **API key** (`Authorization: Bearer <key>`) | machines (CI, the Claude skill) |
-
-- The identity header (`GOTIFACTS_FORWARD_AUTH_HEADER`, default `Remote-User`)
-  is honored **only** when the request's direct peer IP is within
-  `GOTIFACTS_TRUSTED_PROXIES`. From any other source it is stripped and ignored.
-- The principal is that user; they are **admin** iff they are listed in
-  `GOTIFACTS_ADMIN_USERS`.
-- On the ingest plane the identity header is irrelevant — only the API key
-  counts. Leave `/ingest/*` **out** of your proxy's forward-auth.
-
-**No API key ever lives in the browser.** The portal authenticates you purely
-via the proxy-injected header.
-
-## URL ⇄ path convention
-
-Strip `base_domain` from a host. The remaining sub-labels, read left→right, run
-`[most-specific … least-specific]`. The served directory is those labels
-**reversed**:
-
-| Host | Served directory | `group` | `slug` |
-| --- | --- | --- | --- |
-| `app.claude.<base>` | `sites/claude/app` | `claude` | `app` |
-| `a.sub.grp.<base>` | `sites/grp/sub/a` | `grp/sub` | `a` |
-| `demo.<base>` | `sites/demo` | *(flat)* | `demo` |
-
-Rules:
-
-- **Total depth (group segments + slug) ≤ 3.** Deeper hosts are rejected.
-- Each label must match `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`.
-- A site is identified on publish by `group` (0–2 segments, may be empty) +
-  `slug` (the leaf).
-
-## Permissions & API keys
-
-Access on the ingest plane is **capability-based**. A key is either an
-**admin** superuser or a set of **grants**, each binding a set of capabilities
-to a target:
-
-| Capability | Allows |
-| --- | --- |
-| `publish` | create/replace sites — `POST /ingest/sites` |
-| `unpublish` | delete sites — `DELETE /ingest/sites` |
-| `rollback` | restore a site's previous version — `POST /ingest/sites/…/rollback` |
-| `patch` | edit site metadata — `PATCH /ingest/sites` |
-
-| Role | Granted by | Can do |
-| --- | --- | --- |
-| **Admin** | forward-auth allowlist **or** an `admin` key | everything: manage keys + all capabilities on every site |
-| **Scoped key** | a key with one or more grants | only the granted capabilities, confined to each grant's target |
-| **Viewer** | any authenticated forward-auth user | view the portal and `GET /api/sites` |
-
-A grant's target is either a **group** or a single **site**:
-
-- A **group** grant on `docs` owns the `docs` subdomain and everything beneath
-  it: `docs.<base>` itself (the flat site group `""`, slug `docs`) **and** every
-  site under `*.docs.<base>` (e.g. `app.docs.<base>` = group `docs`, slug `app`).
-- A **site** grant on `docs/app` is confined to exactly that one site
-  (`app.docs.<base>`) — not its children, not its siblings.
-- A **group** grant with an **empty** target means *all sites* (global). Targets
-  are free-text (each label must match `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`) — you
-  don't pre-register them.
-
-API keys:
-
-- Token format `gtf_<base64url-32B>`, shown in plaintext **once** at creation.
-- Only the **SHA-256 hash** is stored; lookups are constant-time.
-- Optionally **expire**: a key may carry an expiry instant (or never expire, the
-  default); once past it, the key is rejected like an unknown token.
-- Mint them in the portal (**API Keys** view, admin only) or via the CLI:
-
-  ```sh
-  # A CI key that can deploy AND tear down PR previews — no admin rights:
-  gotifacts keys create --name ci --grant "previews:publish,unpublish"
-
-  # A key confined to a single site:
-  gotifacts keys create --name docs-bot --grant-site "docs/app:publish,patch"
-
-  # An expiring key (also: --expires-at 2026-12-31):
-  gotifacts keys create --name temp --grant "docs:publish" --expires-in 720h
-
-  # Multiple grants, a global grant, and an admin key:
-  gotifacts keys create --name release --grant "claude:publish" --grant ":unpublish"
-  gotifacts keys create --name root --admin
-
-  gotifacts keys list
-  gotifacts keys revoke --id 3
-  ```
-
-  `--grant "group:caps"` targets a group subtree (empty group = all sites);
-  `--grant-site "group/slug:caps"` targets one exact site.
-
-There is **no bootstrap key**: set `GOTIFACTS_ADMIN_USERS`, log in through your
-proxy, and create keys in the UI (the CLI is the headless fallback).
-
-> **Backward compatibility:** existing tokens keep working unchanged. A
-> migration backfills grants from the old `scope`/`group_restriction` model —
-> old `publish` keys get an equivalent `publish` grant; old `admin` keys become
-> admin superusers.
-
-## API reference
-
-### Management plane — `/api/*` (forward-auth)
-
-| Method & path | Scope | Description |
-| --- | --- | --- |
-| `GET /api/me` | viewer+ | `{ user, is_admin, base_domain }` |
-| `GET /api/sites` | viewer+ | Flat list **and** nested group tree. Query: `q`, `tag`, `group`, `sort` (`date`\|`title`\|`slug`), `hidden=true` (admin), `limit`, `offset` |
-| `POST /api/sites` | admin | Manual upload (same multipart body as ingest) |
-| `PATCH /api/sites/{group…}/{slug}` | admin | Metadata-only update |
-| `DELETE /api/sites/{group…}/{slug}` | admin | Delete site + files |
-| `POST /api/sites/{group…}/{slug}/rollback` | admin | Restore the latest archived version |
-| `GET /api/keys` | admin | List keys (no plaintext) |
-| `POST /api/keys` | admin | `{name, admin?, grants:[{kind:"group"\|"site", target, permissions:[…]}], expires_at?}` (`expires_at` is RFC3339 or `YYYY-MM-DD`) → `201 {id, name, admin, grants, expires_at, key}` (plaintext **once**). Legacy `{name, scope, group?}` is still accepted. |
-| `DELETE /api/keys/{id}` | admin | Revoke a key |
-
-### Ingest plane — `/ingest/*` (API key)
-
-**`POST /ingest/sites`** — create or replace a site. `multipart/form-data`:
-
-- `meta` — JSON: `{group, slug, title, description?, date?, tags?, repo?, preview?, hidden?}`
-- **either** `bundle` — a `.tar.gz` containing a top-level `index.html`
-- **or** `index` — a single self-contained HTML document (becomes `index.html`)
-
-Requires the `publish` capability on the target group (admin keys always pass).
-Idempotent (same `group`/`slug` replaces). Response:
-
-```json
-{ "url": "https://app.claude.example.com", "group": "claude", "slug": "app", "updated_at": "2026-06-04T..." }
+  gotifacts --> volume[("Volume (rw)<br/>/data/gotifacts.db<br/>/data/sites/&lt;group&gt;/&lt;slug&gt;/")]
 ```
 
-**`DELETE /ingest/sites/{group…}/{slug}`** — requires the `unpublish` capability
-on the group (automation cleanup, e.g. PR-preview teardown). `PATCH` requires
-`patch`; `POST …/rollback` requires `rollback`.
+The service routes purely by the request `Host`: the apex host serves the portal
+and the `/api/*` + `/ingest/*` APIs; any other host maps to a site directory and
+serves static files.
 
-Example publish of a single HTML file:
+## Quickstart (Docker)
 
-```sh
-printf '{"group":"claude","slug":"app","title":"My App"}' > meta.json
-curl -fsS \
-  -H "Authorization: Bearer $GOTIFACTS_API_KEY" \
-  -F 'meta=<meta.json;type=application/json' \
-  -F 'index=@index.html;type=text/html' \
-  https://example.com/ingest/sites
-```
-
-## Configuration
-
-All configuration is via environment variables (no config file). See
-[`.env.example`](.env.example) for the annotated reference.
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `GOTIFACTS_LISTEN_ADDR` | `:8080` | HTTP bind address |
-| `GOTIFACTS_DATA_DIR` | `/data` | Volume root (DB + site files) |
-| `GOTIFACTS_DB_PATH` | `${DATA_DIR}/gotifacts.db` | SQLite path |
-| `GOTIFACTS_BASE_DOMAIN` | — | **Required.** Apex domain |
-| `GOTIFACTS_FORWARD_AUTH_HEADER` | `Remote-User` | Identity header from the proxy |
-| `GOTIFACTS_ADMIN_USERS` | — | Comma-separated admin users |
-| `GOTIFACTS_TRUSTED_PROXIES` | — | Comma-separated CIDRs/IPs allowed to assert the identity header (**required** for the management plane) |
-| `GOTIFACTS_MAX_UPLOAD_BYTES` | `67108864` (64 MiB) | Ingest body cap |
-| `GOTIFACTS_MAX_EXTRACT_BYTES` | `268435456` (256 MiB) | Decompressed archive cap |
-| `GOTIFACTS_MAX_EXTRACT_ENTRIES` | `10000` | Archive entry cap |
-| `GOTIFACTS_VERSIONING_ENABLED` | `false` | Keep old versions on replace; enable rollback |
-| `GOTIFACTS_VERSIONING_KEEP` | `5` | Versions retained per site |
-
-`gotifacts serve` refuses to start if no admins are reachable (no
-`GOTIFACTS_ADMIN_USERS` + `GOTIFACTS_TRUSTED_PROXIES`); use the CLI to mint an
-admin key for purely headless setups.
-
-## Running with Docker
-
-A proxy-agnostic [`docker-compose.yml`](docker-compose.yml) is provided. The
+A proxy-agnostic [`docker-compose.yml`](docker-compose.yml) is provided; the
 image is published to `ghcr.io/lmgarret/gotifacts`.
 
 ```sh
@@ -248,63 +85,18 @@ cp .env.example .env
 docker compose up -d
 ```
 
-gotifacts is reachable only on the internal network (`expose: 8080`). Put your
-reverse proxy in front of it — **never expose port 8080 to the internet.**
+gotifacts is reachable only on the internal network — **never expose port 8080
+to the internet.** Put your reverse proxy in front of it for TLS and
+forward-auth. See the
+[Docker](https://lmgarret.github.io/gotifacts/guides/deploy-with-docker/) and
+reverse-proxy guides for the full setup, and
+[`examples/`](examples/) for reference nginx/Caddy configs.
 
-The image is a three-stage build (Node → Go → `scratch`): a static, non-root,
-CA-cert-only runtime that declares `/data` as a volume.
+## Contributing & security
 
-## Reverse proxy setup
-
-gotifacts is proxy-agnostic. Reference snippets (illustrative, adapt to your
-SSO provider):
-
-- **nginx** — [`examples/nginx/gotifacts.conf`](examples/nginx/gotifacts.conf)
-- **Caddy** — [`examples/caddy/Caddyfile`](examples/caddy/Caddyfile)
-
-Each shows: TLS; apex `/` + `/api/*` behind forward-auth with the identity
-header injected (and any client-supplied copy stripped); apex `/ingest/*` with
-forward-auth **off**; and `*.base` / `*.*.base` serving site content.
-
-### Framing sites in the portal
-
-The portal renders **live, sandboxed iframe thumbnails** of sites. For a site
-to be framable by the portal, it must be served with:
-
-```
-Content-Security-Policy: frame-ancestors https://<base>
-```
-
-The proxy examples add this header to site responses. If you set `preview` in a
-site's metadata, the portal uses that image instead of an iframe.
-
-## Security
-
-See [`SECURITY.md`](SECURITY.md) for the threat model and private reporting.
-Highlights:
-
-- **Identity-header spoofing is the top risk.** The header is honored only from
-  `GOTIFACTS_TRUSTED_PROXIES`; otherwise stripped. Never expose gotifacts
-  directly; your proxy must strip any client-supplied identity header before
-  injecting the real one.
-- **Uploads** are guarded against zip-slip, symlink escapes, tar-bombs, and
-  oversized payloads. Sites are written to a temp dir on the same volume,
-  validated, then atomically swapped into place.
-- **API keys** are hashed at rest, shown once, compared in constant time, and
-  never logged.
-
-## Publishing from CI or Claude
-
-A distributable **Claude skill** lives in
-[`examples/skill/`](examples/skill/SKILL.md). It asks for consent, writes a
-self-contained `index.html`, picks a URL-safe `slug`/`group` (default
-`claude`), publishes via the single-`index` ingest form using `GOTIFACTS_URL` +
-a `GOTIFACTS_API_KEY` holding the `publish` capability, and reports the URL. It
-never touches server/proxy credentials.
-
-## Development
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md). In short:
+- Development setup and the docs workflow: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+  and [`AGENTS.md`](AGENTS.md).
+- Threat model and private vulnerability reporting: [`SECURITY.md`](SECURITY.md).
 
 ```sh
 go test -race ./...          # backend tests
