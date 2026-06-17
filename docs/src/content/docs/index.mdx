@@ -1,0 +1,56 @@
+---
+title: gotifacts
+description: A single, self-hosted Go service that hosts static sites by host-based routing and serves a dynamic portal to browse them.
+template: splash
+hero:
+  tagline: Self-host static sites by host-based routing, browse them in a dynamic portal, and publish over a simple HTTP API.
+  actions:
+    - text: Get started
+      link: /gotifacts/tutorials/run-locally/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/lmgarret/gotifacts
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## What is gotifacts?
+
+A single, self-hosted **Go** service that **hosts static sites** by host-based
+routing and serves a **dynamic portal** to browse them. You publish sites over
+an HTTP API; gotifacts stores them on a volume with a **SQLite** registry and
+serves them at `https://<slug>.<group>.<base>`.
+
+It runs behind **any** reverse proxy you provide (nginx, Caddy, …) for TLS and
+SSO/forward-auth. It serves plain HTTP on one port, never TLS, and enforces its
+own authorization.
+
+<CardGrid>
+  <Card title="One static binary" icon="seti:go">
+    CGO-free, built `FROM scratch`. SQLite + a volume are the only state.
+  </Card>
+  <Card title="Two-plane auth" icon="approve-check">
+    A browser portal behind forward-auth/SSO, and a machine ingest API behind
+    scoped API keys.
+  </Card>
+  <Card title="Publish from anywhere" icon="rocket">
+    CI, the Claude skill, or the OAuth-protected MCP connector.
+  </Card>
+  <Card title="No hardcoded hosts" icon="setting">
+    Domains, paths, and limits are all configurable.
+  </Card>
+</CardGrid>
+
+## Find your way around
+
+These docs follow the [Diátaxis](https://diataxis.fr/) framework.
+
+<CardGrid>
+  <LinkCard title="Tutorials" href="/gotifacts/tutorials/run-locally/" description="Learning-oriented: get a working instance and publish your first site." />
+  <LinkCard title="How-to guides" href="/gotifacts/guides/deploy-with-docker/" description="Task-oriented recipes: deploy, configure a proxy, scope keys, connect Claude." />
+  <LinkCard title="Reference" href="/gotifacts/reference/configuration/" description="Information-oriented: env vars, the HTTP API, the CLI, conventions." />
+  <LinkCard title="Explanation" href="/gotifacts/explanation/architecture/" description="Understanding-oriented: architecture, the auth model, the threat model." />
+</CardGrid>

@@ -5,6 +5,7 @@ export interface Me {
   user: string;
   is_admin: boolean;
   base_domain: string;
+  mcp_enabled: boolean;
 }
 
 export interface Site {
@@ -71,6 +72,19 @@ export interface CreateKeyBody {
   expires_at?: string;
 }
 
+// Connection is one MCP connector authorization (an OAuth consent), aggregating
+// all tokens it issued. Revoking it deletes those tokens.
+export interface Connection {
+  id: string;
+  client_id: string;
+  client_name: string;
+  user: string;
+  grants: Grant[];
+  created_at: string;
+  last_used_at?: string;
+  expires_at: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -96,6 +110,53 @@ export interface ListParams {
   group?: string;
   sort?: string;
   hidden?: boolean;
+}
+
+// PublishResult mirrors ingest.Result returned by POST /api/sites.
+export interface PublishResult {
+  url: string;
+  group: string;
+  slug: string;
+  updated_at: string;
+}
+
+export interface PublishMeta {
+  group?: string;
+  slug: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  repo?: string;
+  preview?: string;
+  hidden?: boolean;
+}
+
+// publishSite uploads a site via the admin multipart endpoint. A single .html
+// file is sent as the "index" part; a .zip/.tar.gz archive as the "bundle" part
+// (the server distinguishes them by magic bytes).
+async function publishSite(meta: PublishMeta, file: File): Promise<PublishResult> {
+  const form = new FormData();
+  form.append("meta", JSON.stringify(meta));
+  form.append(isArchive(file) ? "bundle" : "index", file, file.name);
+  const res = await fetch("/api/sites", { method: "POST", body: form });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.error) msg = body.error;
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<PublishResult>;
+}
+
+// isArchive reports whether a file should be sent as a bundle (zip/tar.gz)
+// rather than a single index.html.
+export function isArchive(file: File): boolean {
+  const n = file.name.toLowerCase();
+  return n.endsWith(".zip") || n.endsWith(".tar.gz") || n.endsWith(".tgz");
 }
 
 export const api = {
@@ -124,6 +185,8 @@ export const api = {
   rollbackSite: (group: string, slug: string) =>
     request<Site>(`/api/sites/${sitePath(group, slug)}/rollback`, { method: "POST" }),
 
+  publishSite,
+
   listKeys: () => request<{ keys: ApiKey[] }>("/api/keys"),
 
   createKey: (body: CreateKeyBody) =>
@@ -133,6 +196,11 @@ export const api = {
     }),
 
   deleteKey: (id: number) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
+
+  listConnections: () => request<{ connections: Connection[] }>("/api/mcp/connections"),
+
+  revokeConnection: (id: string) =>
+    request<void>(`/api/mcp/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
 function sitePath(group: string, slug: string): string {

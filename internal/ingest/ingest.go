@@ -4,6 +4,7 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -53,6 +54,9 @@ const (
 	KindBundle Kind = iota
 	// KindIndex is a single self-contained HTML document.
 	KindIndex
+	// KindZip is a zip archive containing an index.html (a single common
+	// top-level directory is unwrapped during extraction).
+	KindZip
 )
 
 // Result is returned on a successful publish.
@@ -80,6 +84,17 @@ func (p *Publisher) Publish(ctx context.Context, meta Meta, kind Kind, r io.Read
 	switch kind {
 	case KindBundle:
 		if err := archive.ExtractTarGz(r, stage, archive.Limits{
+			MaxBytes:   p.cfg.MaxExtractBytes,
+			MaxEntries: p.cfg.MaxExtractEntries,
+		}); err != nil {
+			return nil, nil, err
+		}
+	case KindZip:
+		ra, size, err := readerAtSize(r)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := archive.ExtractZip(ra, size, stage, archive.Limits{
 			MaxBytes:   p.cfg.MaxExtractBytes,
 			MaxEntries: p.cfg.MaxExtractEntries,
 		}); err != nil {
@@ -211,6 +226,28 @@ func (p *Publisher) Rollback(ctx context.Context, sp router.SitePath) error {
 		return err
 	}
 	return nil
+}
+
+// readerAtSize adapts a content stream into the io.ReaderAt + size that
+// archive/zip needs. The publish path spools to a temp file, so the common
+// cases (*os.File, *bytes.Reader) are zero-copy; anything else is buffered.
+func readerAtSize(r io.Reader) (io.ReaderAt, int64, error) {
+	switch v := r.(type) {
+	case *os.File:
+		st, err := v.Stat()
+		if err != nil {
+			return nil, 0, err
+		}
+		return v, st.Size(), nil
+	case *bytes.Reader:
+		return v, v.Size(), nil
+	default:
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return nil, 0, err
+		}
+		return bytes.NewReader(data), int64(len(data)), nil
+	}
 }
 
 func (p *Publisher) newStageDir() (string, error) {

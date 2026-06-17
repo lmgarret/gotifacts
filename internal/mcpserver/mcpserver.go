@@ -1,0 +1,208 @@
+// Package mcpserver embeds an OAuth 2.1-protected Model Context Protocol server
+// inside gotifacts, exposing a single publish_site tool over Streamable HTTP.
+//
+// It exists because Claude's mobile/web "custom connector" UI authenticates
+// remote MCP servers exclusively via OAuth (no bearer/header field), so the
+// env-var skill cannot be used there. This server reuses the existing publish
+// pipeline (ingest.Publisher) and key-hashing primitives, and is inert unless
+// GOTIFACTS_MCP_ENABLED is set.
+//
+// The OAuth surface is split across two planes, mirroring gotifacts' existing
+// ingest/management split: the browser-facing /mcp/oauth/authorize consent step
+// is authenticated by the reverse-proxy forward-auth (a *auth.Principal is
+// supplied by the caller); every machine-facing endpoint (metadata, register,
+// token, and /mcp itself) authenticates via OAuth and must NOT sit behind
+// forward-auth.
+package mcpserver
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/lmgarret/gotifacts/internal/auth"
+	"github.com/lmgarret/gotifacts/internal/config"
+	"github.com/lmgarret/gotifacts/internal/ingest"
+	"github.com/lmgarret/gotifacts/internal/keys"
+	"github.com/lmgarret/gotifacts/internal/store"
+
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+const (
+	// scopePublish is the only scope MCP-issued tokens carry.
+	scopePublish = "publish"
+	// codeTTL is the lifetime of an authorization code.
+	codeTTL = 10 * time.Minute
+	// serverVersion is reported in the MCP initialize handshake.
+	serverVersion = "0.1.0"
+)
+
+// Service holds the MCP + OAuth dependencies and HTTP handlers.
+type Service struct {
+	cfg     *config.Config
+	store   *store.Store
+	pub     *ingest.Publisher
+	log     *slog.Logger
+	csrfKey []byte
+	stream  http.Handler
+	reg     *rateLimiter
+}
+
+// New constructs the MCP service, building the MCP server, registering the
+// publish_site tool, and wrapping the Streamable HTTP transport with bearer
+// authentication.
+func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.Logger) (*Service, error) {
+	csrf := make([]byte, 32)
+	if _, err := rand.Read(csrf); err != nil {
+		return nil, fmt.Errorf("mcp csrf key: %w", err)
+	}
+	s := &Service{cfg: cfg, store: st, pub: pub, log: log, csrfKey: csrf, reg: newRateLimiter(20, time.Minute)}
+
+	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gotifacts", Version: serverVersion}, nil)
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{
+		Name: "publish_site",
+		Description: "Publish a self-contained HTML page to this gotifacts instance and " +
+			"return its public URL. Provide the full standalone HTML document (inline " +
+			"CSS/JS) as `html` and a URL-safe `slug`. Re-publishing the same slug replaces " +
+			"the existing site.",
+	}, s.publishSite)
+
+	streamHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	// No required scope at the middleware: a valid, unexpired token is admitted
+	// and the per-capability/target check happens in the tool via Principal.Can.
+	s.stream = mcpauth.RequireBearerToken(s.verifyToken, &mcpauth.RequireBearerTokenOptions{
+		ResourceMetadataURL: cfg.BaseURL() + "/.well-known/oauth-protected-resource",
+	})(streamHandler)
+
+	return s, nil
+}
+
+// publishInput mirrors the publishable subset of ingest.Meta plus the HTML body.
+type publishInput struct {
+	Slug        string   `json:"slug"`
+	HTML        string   `json:"html"`
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Group       string   `json:"group,omitempty"`
+}
+
+// publishOutput is the structured result of a successful publish.
+type publishOutput struct {
+	URL   string `json:"url"`
+	Group string `json:"group"`
+	Slug  string `json:"slug"`
+}
+
+// publishSite is the MCP tool handler. It resolves the bearer principal from the
+// validated token, enforces the token's capability grants against the target
+// site, and runs the same publish path as POST /ingest/sites.
+func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, in publishInput) (*mcpsdk.CallToolResult, publishOutput, error) {
+	p := principalFromRequest(req)
+	if p == nil {
+		return errorResult("authentication required"), publishOutput{}, nil
+	}
+
+	group := strings.TrimSpace(in.Group)
+	if group == "" {
+		group = s.cfg.MCPGroup
+	}
+	if strings.TrimSpace(in.HTML) == "" {
+		return errorResult("html must not be empty"), publishOutput{}, nil
+	}
+	if !p.CanPublishTo(group, in.Slug) {
+		return errorResult(fmt.Sprintf("this connection is not permitted to publish %q in group %q", in.Slug, group)), publishOutput{}, nil
+	}
+
+	meta := ingest.Meta{
+		Group:       group,
+		Slug:        in.Slug,
+		Title:       in.Title,
+		Description: in.Description,
+		Tags:        in.Tags,
+	}
+	res, _, err := s.pub.Publish(ctx, meta, ingest.KindIndex, strings.NewReader(in.HTML))
+	if err != nil {
+		return errorResult("publish failed: " + err.Error()), publishOutput{}, nil
+	}
+	s.log.Info("mcp publish", "user", p.User, "group", res.Group, "slug", res.Slug)
+	out := publishOutput{URL: res.URL, Group: res.Group, Slug: res.Slug}
+	return &mcpsdk.CallToolResult{
+		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "Published to " + res.URL}},
+	}, out, nil
+}
+
+// principalFromRequest extracts the *auth.Principal that verifyToken stashed in
+// the bearer token's Extra map.
+func principalFromRequest(req *mcpsdk.CallToolRequest) *auth.Principal {
+	if req == nil || req.Extra == nil || req.Extra.TokenInfo == nil {
+		return nil
+	}
+	p, _ := req.Extra.TokenInfo.Extra["principal"].(*auth.Principal)
+	return p
+}
+
+// verifyToken is the bearer TokenVerifier for the MCP endpoint. It resolves an
+// opaque access token to an API-key-equivalent Principal carrying the token's
+// grants, which the tool handler authorizes against the target site.
+func (s *Service) verifyToken(ctx context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
+	rec, err := s.store.FindToken(ctx, "access", keys.Hash(token))
+	if err != nil {
+		return nil, mcpauth.ErrInvalidToken
+	}
+	s.store.TouchToken(ctx, rec.Hash)
+	p := &auth.Principal{
+		User:   rec.User,
+		Grants: rec.Grants,
+		Source: auth.SourceAPIKey,
+	}
+	return &mcpauth.TokenInfo{
+		Scopes:     []string{scopePublish},
+		Expiration: rec.ExpiresAt,
+		UserID:     rec.User,
+		Extra:      map[string]any{"principal": p},
+	}, nil
+}
+
+// errorResult builds a tool result flagged as an error with a text message.
+func errorResult(msg string) *mcpsdk.CallToolResult {
+	return &mcpsdk.CallToolResult{
+		IsError: true,
+		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: msg}},
+	}
+}
+
+// randToken returns a new opaque token and its hex SHA-256 hash.
+func randToken() (token, hash string, err error) {
+	b := make([]byte, 32)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", err
+	}
+	token = base64.RawURLEncoding.EncodeToString(b)
+	return token, keys.Hash(token), nil
+}
+
+// randID returns a new opaque client identifier.
+func randID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "mcp-" + base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// randConnID returns a new opaque connection identifier.
+func randConnID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
