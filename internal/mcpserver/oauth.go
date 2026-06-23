@@ -79,8 +79,15 @@ func (s *Service) handleASMetadata(w http.ResponseWriter, r *http.Request) {
 		TokenEndpointAuthMethodsSupported: []string{"none", "client_secret_post", "client_secret_basic"},
 		CodeChallengeMethodsSupported:     []string{"S256"},
 	}
+	// Encode via a map so we can include logo_uri, which is not in the
+	// oauthex struct but may be used by connector UIs to display our icon
+	// directly (bypassing Google's favicon-by-domain lookup).
+	type asMeta struct {
+		oauthex.AuthServerMeta
+		LogoURI string `json:"logo_uri,omitempty"`
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(meta)
+	_ = json.NewEncoder(w).Encode(asMeta{AuthServerMeta: meta, LogoURI: base + "/favicon.svg"})
 }
 
 // --- dynamic client registration (RFC 7591) -----------------------------
