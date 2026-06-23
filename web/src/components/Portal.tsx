@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Me, type Site, type TreeNode } from "../api";
 import { GroupSection } from "./GroupSection";
+import { type Layout } from "./SiteCard";
 import { SiteDetail } from "./SiteDetail";
 import { SiteCreateModal } from "./SiteCreateModal";
 
 interface Props {
   me: Me;
+}
+
+const LAYOUT_KEY = "gotifacts.layout";
+
+function initialLayout(): Layout {
+  return localStorage.getItem(LAYOUT_KEY) === "list" ? "list" : "card";
 }
 
 export function Portal({ me }: Props) {
@@ -21,6 +28,11 @@ export function Portal({ me }: Props) {
   const [showHidden, setShowHidden] = useState(false);
   const [selected, setSelected] = useState<Site | null>(null);
   const [creating, setCreating] = useState(false);
+  const [layout, setLayout] = useState<Layout>(initialLayout);
+
+  useEffect(() => {
+    localStorage.setItem(LAYOUT_KEY, layout);
+  }, [layout]);
 
   const load = useCallback(() => {
     api
@@ -110,6 +122,24 @@ export function Portal({ me }: Props) {
           </label>
         )}
         <span className="count">{count} site{count === 1 ? "" : "s"}</span>
+        <div className="layout-toggle" role="group" aria-label="Layout">
+          <button
+            className={layout === "card" ? "active" : ""}
+            onClick={() => setLayout("card")}
+            aria-pressed={layout === "card"}
+            title="Card view"
+          >
+            ▦
+          </button>
+          <button
+            className={layout === "list" ? "active" : ""}
+            onClick={() => setLayout("list")}
+            aria-pressed={layout === "list"}
+            title="List view"
+          >
+            ☰
+          </button>
+        </div>
         {me.is_admin && (
           <button className="add-site" onClick={() => setCreating(true)}>
             + Add site
@@ -126,6 +156,7 @@ export function Portal({ me }: Props) {
             node={tree}
             base={me.base_domain}
             depth={0}
+            layout={layout}
             onSelect={setSelected}
           />
         </div>
