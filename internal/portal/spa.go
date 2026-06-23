@@ -25,6 +25,12 @@ func (s *SPA) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "index.html"
 	}
+	// Redirect legacy .ico requests to the SVG favicon so MCP connector UIs
+	// (which probe /favicon.ico) pick up the gotifacts icon.
+	if name == "favicon.ico" {
+		http.Redirect(w, r, "/favicon.svg", http.StatusMovedPermanently)
+		return
+	}
 	if f, err := s.files.Open(name); err == nil {
 		defer func() { _ = f.Close() }()
 		if st, err := f.Stat(); err == nil && !st.IsDir() {
