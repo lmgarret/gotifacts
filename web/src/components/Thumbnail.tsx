@@ -95,7 +95,7 @@ export function Thumbnail({ url, preview, title }: Props) {
           src={src}
           title={title}
           loading="lazy"
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-same-origin"
           scrolling="no"
           tabIndex={-1}
           className={loaded ? "loaded" : undefined}
