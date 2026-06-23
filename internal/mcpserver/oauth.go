@@ -216,6 +216,7 @@ type consentData struct {
 
 var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Authorize gotifacts connector</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1rem}
 .card{border:1px solid #ddd;border-radius:8px;padding:1.5rem}button{font-size:1rem;padding:.5rem 1rem;border-radius:6px;border:0;cursor:pointer}
 .approve{background:#2563eb;color:#fff}.deny{background:#eee;margin-left:.5rem}
