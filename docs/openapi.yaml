@@ -117,11 +117,17 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [Management]
-      summary: Delete a site (admin)
+      summary: Unpublish a site (admin)
+      description: |
+        Soft-deletes the site: takes it offline immediately by moving its files
+        to a quarantine directory, and sets `deleted_at` on the registry row.
+        Files and the row are permanently removed by the background purge after
+        the `GOTIFACTS_DELETED_SITE_TTL` (default 30 days). Re-publishing the
+        same slug before that deadline restores the site.
       security:
         - forwardAuth: []
       responses:
-        "204": { description: Deleted. }
+        "204": { description: Unpublished (soft-deleted). }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -272,10 +278,15 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [Ingest]
-      summary: Delete (unpublish) a site
-      description: Requires the `unpublish` capability on the target group.
+      summary: Unpublish a site
+      description: |
+        Requires the `unpublish` capability on the target group. Soft-deletes
+        the site: takes it offline immediately and sets `deleted_at`. Files are
+        retained in a quarantine directory until the background purge removes
+        them after the configured TTL (default 30 days). Re-publishing the same
+        slug before the deadline restores the site.
       responses:
-        "204": { description: Deleted. }
+        "204": { description: Unpublished (soft-deleted). }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -367,6 +378,10 @@ components:
         hidden: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        deleted_at:
+          type: string
+          format: date-time
+          description: "Set when the site is soft-deleted; absent for live sites."
       required: [id, group, slug, title, hidden, created_at, updated_at]
 
     SiteMeta:

@@ -168,11 +168,8 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	writeJSON(w, http.StatusOK, res)
 }
 
-// deleteSite removes registry row and on-disk content for a site.
+// deleteSite soft-deletes a site via the publish pipeline (quarantines files,
+// marks deleted_at in the registry).
 func (s *Server) deleteSite(r *http.Request, group, slug string) error {
-	if err := s.store.DeleteSite(r.Context(), group, slug); err != nil {
-		return err
-	}
-	s.removeSiteDir(group, slug)
-	return nil
+	return s.pub.Unpublish(r.Context(), group, slug)
 }

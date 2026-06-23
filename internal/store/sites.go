@@ -15,18 +15,19 @@ var ErrNotFound = errors.New("not found")
 
 // Site is a registered static site.
 type Site struct {
-	ID          int64     `json:"id"`
-	Group       string    `json:"group"`
-	Slug        string    `json:"slug"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Date        string    `json:"date,omitempty"`
-	Tags        []string  `json:"tags"`
-	Repo        string    `json:"repo,omitempty"`
-	Preview     string    `json:"preview,omitempty"`
-	Hidden      bool      `json:"hidden"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          int64      `json:"id"`
+	Group       string     `json:"group"`
+	Slug        string     `json:"slug"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Date        string     `json:"date,omitempty"`
+	Tags        []string   `json:"tags"`
+	Repo        string     `json:"repo,omitempty"`
+	Preview     string     `json:"preview,omitempty"`
+	Hidden      bool       `json:"hidden"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 // SiteInput carries the mutable metadata for an upsert or patch.
@@ -54,7 +55,8 @@ func (s *Store) UpsertSite(ctx context.Context, group, slug string, in SiteInput
         ON CONFLICT(group_path, slug) DO UPDATE SET
             title=excluded.title, description=excluded.description, date=excluded.date,
             tags=excluded.tags, repo=excluded.repo, preview=excluded.preview,
-            hidden=excluded.hidden, updated_at=excluded.updated_at`,
+            hidden=excluded.hidden, updated_at=excluded.updated_at,
+            deleted_at=NULL`,
 		group, slug, in.Title, in.Description, in.Date, string(tags), in.Repo, in.Preview, boolInt(in.Hidden), ts, ts)
 	if err != nil {
 		return nil, err
@@ -115,22 +117,42 @@ type SitePatch struct {
 }
 
 // UpsertSiteTouch refreshes updated_at for an existing site (used by rollback).
+// It also clears deleted_at so that rolling back a soft-deleted site restores it.
 func (s *Store) UpsertSiteTouch(ctx context.Context, group, slug string) (*Site, error) {
-	if _, err := s.db.ExecContext(ctx, `UPDATE sites SET updated_at=? WHERE group_path=? AND slug=?`, now(), group, slug); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE sites SET updated_at=?, deleted_at=NULL WHERE group_path=? AND slug=?`, now(), group, slug); err != nil {
 		return nil, err
 	}
 	return s.GetSite(ctx, group, slug)
 }
 
 // GetSite returns the site at (group, slug) or ErrNotFound.
+// Soft-deleted sites are not returned; use ListDeletedBefore for purge access.
 func (s *Store) GetSite(ctx context.Context, group, slug string) (*Site, error) {
 	row := s.db.QueryRowContext(ctx, `
-        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at
-        FROM sites WHERE group_path=? AND slug=?`, group, slug)
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at
+        FROM sites WHERE group_path=? AND slug=? AND deleted_at IS NULL`, group, slug)
 	return scanSite(row)
 }
 
-// DeleteSite removes the site at (group, slug). Returns ErrNotFound if absent.
+// SoftDeleteSite marks the site at (group, slug) as deleted by setting
+// deleted_at. Returns ErrNotFound if the site does not exist or is already
+// soft-deleted.
+func (s *Store) SoftDeleteSite(ctx context.Context, group, slug string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sites SET deleted_at=? WHERE group_path=? AND slug=? AND deleted_at IS NULL`,
+		now(), group, slug)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteSite hard-deletes the site at (group, slug) regardless of soft-delete
+// state. Used only by the background purge after the retention TTL has elapsed.
 func (s *Store) DeleteSite(ctx context.Context, group, slug string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM sites WHERE group_path=? AND slug=?`, group, slug)
 	if err != nil {
@@ -141,6 +163,28 @@ func (s *Store) DeleteSite(ctx context.Context, group, slug string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ListDeletedBefore returns all soft-deleted sites whose deleted_at is at or
+// before the given cutoff. Used by the background purge job.
+func (s *Store) ListDeletedBefore(ctx context.Context, cutoff time.Time) ([]Site, error) {
+	rows, err := s.db.QueryContext(ctx, `
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at
+        FROM sites WHERE deleted_at IS NOT NULL AND deleted_at <= ?`,
+		cutoff.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Site
+	for rows.Next() {
+		site, err := scanSite(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *site)
+	}
+	return out, rows.Err()
 }
 
 // ListFilter parameters narrow and order a site listing.
@@ -160,6 +204,7 @@ func (s *Store) ListSites(ctx context.Context, f ListFilter) ([]Site, error) {
 		clauses []string
 		args    []any
 	)
+	clauses = append(clauses, "deleted_at IS NULL")
 	if !f.IncludeHide {
 		clauses = append(clauses, "hidden = 0")
 	}
@@ -177,7 +222,7 @@ func (s *Store) ListSites(ctx context.Context, f ListFilter) ([]Site, error) {
 		clauses = append(clauses, `EXISTS (SELECT 1 FROM json_each(sites.tags) WHERE json_each.value = ?)`)
 		args = append(args, f.Tag)
 	}
-	q := `SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at FROM sites`
+	q := `SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at FROM sites`
 	if len(clauses) > 0 {
 		q += " WHERE " + strings.Join(clauses, " AND ")
 	}
@@ -214,14 +259,15 @@ type scanner interface {
 
 func scanSite(row scanner) (*Site, error) {
 	var (
-		s        Site
-		tagsJSON string
-		hidden   int
-		created  string
-		updated  string
+		s         Site
+		tagsJSON  string
+		hidden    int
+		created   string
+		updated   string
+		deletedAt *string
 	)
 	err := row.Scan(&s.ID, &s.Group, &s.Slug, &s.Title, &s.Description, &s.Date,
-		&tagsJSON, &s.Repo, &s.Preview, &hidden, &created, &updated)
+		&tagsJSON, &s.Repo, &s.Preview, &hidden, &created, &updated, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -234,6 +280,10 @@ func scanSite(row scanner) (*Site, error) {
 	}
 	s.CreatedAt = parseTime(created)
 	s.UpdatedAt = parseTime(updated)
+	if deletedAt != nil {
+		t := parseTime(*deletedAt)
+		s.DeletedAt = &t
+	}
 	return &s, nil
 }
 

@@ -27,11 +27,11 @@ func (s *Server) handleIngestDelete(w http.ResponseWriter, r *http.Request, p *a
 		writeError(w, http.StatusForbidden, "key not permitted to unpublish from this group")
 		return
 	}
-	if err := s.deleteSite(r, sp.Group, sp.Slug); errors.Is(err, store.ErrNotFound) {
+	if err := s.pub.Unpublish(r.Context(), sp.Group, sp.Slug); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "site not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete site")
+		writeError(w, http.StatusInternalServerError, "failed to unpublish site")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
