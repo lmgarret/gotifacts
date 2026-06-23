@@ -36,6 +36,7 @@ export function Thumbnail({ url, preview, title }: Props) {
   const releasedRef = useRef(false);
   const [visible, setVisible] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -80,7 +81,15 @@ export function Thumbnail({ url, preview, title }: Props) {
   return (
     <div className="thumb" ref={ref}>
       {preview ? (
-        visible && <img src={preview} alt={title} loading="lazy" />
+        visible && (
+          <img
+            src={preview}
+            alt={title}
+            loading="lazy"
+            className={loaded ? "loaded" : undefined}
+            onLoad={() => setLoaded(true)}
+          />
+        )
       ) : src ? (
         <iframe
           src={src}
@@ -89,7 +98,11 @@ export function Thumbnail({ url, preview, title }: Props) {
           sandbox="allow-scripts allow-same-origin"
           scrolling="no"
           tabIndex={-1}
-          onLoad={releaseOnce}
+          className={loaded ? "loaded" : undefined}
+          onLoad={() => {
+            releaseOnce();
+            setLoaded(true);
+          }}
         />
       ) : (
         <div className="thumb-placeholder">{title}</div>

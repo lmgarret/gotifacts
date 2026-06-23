@@ -52,6 +52,34 @@ export function Portal({ me }: Props) {
     [tree],
   );
 
+  // Sandboxed preview iframes can steal focus when their embedded page loads
+  // (e.g. a script calling focus()), making the browser scroll that iframe into
+  // view and jumping the page. Guard centrally: remember the user's scroll
+  // position and, if focus lands on a preview iframe, blur it and restore the
+  // scroll. The correction runs synchronously in the same turn as the steal —
+  // before paint — so there is no visible jump.
+  useEffect(() => {
+    let lastX = window.scrollX;
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      lastX = window.scrollX;
+      lastY = window.scrollY;
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.tagName === "IFRAME" && target.closest(".thumb")) {
+        (target as HTMLIFrameElement).blur();
+        window.scrollTo(lastX, lastY);
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("focusin", onFocusIn, true);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("focusin", onFocusIn, true);
+    };
+  }, []);
+
   return (
     <div className="portal">
       <div className="toolbar">
