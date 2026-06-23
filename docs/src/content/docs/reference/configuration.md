@@ -57,6 +57,14 @@ within `GOTIFACTS_TRUSTED_PROXIES`; otherwise it is stripped. See the
 
 See [enable versioning & roll back](/gotifacts/guides/versioning-and-rollback/).
 
+## Lifecycle & retention
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `GOTIFACTS_DELETED_SITE_TTL` | `720h` (30 days) | How long unpublished site files are kept in quarantine before permanent removal. Set to `0` to purge on the next hourly cycle. |
+
+When a site is unpublished it is taken offline immediately and its files are moved to a quarantine directory (`$DATA_DIR/.deleted/`). A background purge job runs hourly and permanently deletes any quarantined sites whose `deleted_at` timestamp is older than this TTL. Re-publishing the same slug during the grace period restores the site from the database (quarantine files are replaced by the new publish).
+
 ## MCP connector
 
 | Variable | Default | Notes |

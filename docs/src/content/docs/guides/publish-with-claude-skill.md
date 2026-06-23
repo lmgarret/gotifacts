@@ -5,53 +5,55 @@ sidebar:
   order: 6
 ---
 
-gotifacts ships a distributable **Claude skill** that asks for consent, writes a
-self-contained `index.html`, picks a URL-safe `slug`/`group`, publishes via the
-single-`index` ingest form, and reports the URL. It only ever handles the API
-key + URL — never server or proxy credentials.
+gotifacts ships a distributable **Claude skill** (`gotifacts`) that covers the
+full site lifecycle: publish, unpublish, update metadata, and rollback. The
+**golden path** is the [MCP connector](/gotifacts/guides/connect-claude-mcp/) —
+no env vars needed, Claude authenticates via OAuth. For Claude Code, CI, or any
+environment without a connector, it falls back to `GOTIFACTS_URL` + `GOTIFACTS_API_KEY`.
 
 The skill lives in the repo at
 [`examples/skill/SKILL.md`](https://github.com/lmgarret/gotifacts/blob/main/examples/skill/SKILL.md).
 
 ## Where it works
 
-The skill needs `GOTIFACTS_URL` and `GOTIFACTS_API_KEY` in the environment, so it
-works wherever **you** control that environment:
-
-- Claude Code
-- CI
-- the Claude API code-execution tool
-
-It does **not** work in default claude.ai / Claude mobile conversations, which
-can't inject environment variables. For those, use the
-[MCP connector](/gotifacts/guides/connect-claude-mcp/) instead.
+| Environment | Path |
+| --- | --- |
+| claude.ai / Claude mobile | MCP connector (OAuth — no env vars) |
+| Claude Code / Claude API | MCP connector **or** API key + env vars |
+| CI pipelines | API key + env vars |
 
 ## Install
 
 ```sh
-mkdir -p ~/.claude/skills/publish-to-gotifacts
-cp examples/skill/SKILL.md ~/.claude/skills/publish-to-gotifacts/
+mkdir -p ~/.claude/skills/gotifacts
+cp examples/skill/SKILL.md ~/.claude/skills/gotifacts/
 ```
 
-## Configure
+## Configure (API key path)
 
-Set the two variables before use:
+Set the two variables before use when not using the MCP connector:
 
 ```sh
 export GOTIFACTS_URL=https://example.com
-export GOTIFACTS_API_KEY=gtf_…   # a publish-scoped key, ideally limited to the claude group
+export GOTIFACTS_API_KEY=gtf_…   # scoped key for the claude group
 ```
 
 Mint that key as in [create & scope API keys](/gotifacts/guides/create-api-keys/),
-e.g. `--grant "claude:publish"`.
+e.g. `--grant "claude:publish,unpublish,patch,rollback"`.
 
 ## Use
 
-Ask Claude to "publish this as a web page" (or similar). The skill will:
+Ask Claude to "publish this as a web page", "take that down", "update the
+description", or "roll back to the previous version". The skill will ask for
+consent, then call the appropriate MCP tool (or `curl` command). Operations:
 
-1. Summarize what it's about to publish and ask you to confirm.
-2. Produce a self-contained `index.html`.
-3. Pick a `slug` and `group` (default `claude`) within your key's scope.
-4. `POST` to `${GOTIFACTS_URL}/ingest/sites` and report the resulting URL.
+| Ask Claude to... | Skill action |
+| --- | --- |
+| Publish / share a page | `publish_site` / POST |
+| Unpublish / take down | `unpublish_site` / DELETE |
+| Update title or tags | `update_site` / PATCH |
+| Roll back to previous | `rollback_site` / POST rollback |
 
-Re-publishing the same `group`/`slug` replaces the existing site.
+Re-publishing the same `group`/`slug` replaces the existing site. Unpublishing
+keeps files in quarantine for the server's configured TTL (default 30 days)
+before permanent removal — re-publishing within that window restores the site.
