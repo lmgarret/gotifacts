@@ -70,6 +70,7 @@ cd docs && npm run build   # renders the spec + validates internal links
 
 ## Commit / PR
 
+- Follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): description` — e.g. `feat(api): add pagination`, `fix(store): handle nil connection`, `docs: update openapi spec`. Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 - Keep changes focused; include tests for new behavior.
 - Don't commit build output (`web/dist`, `docs/dist` are gitignored).
 - Contributions are licensed under MIT.
