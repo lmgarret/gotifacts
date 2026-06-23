@@ -70,10 +70,13 @@ blocks. Both strip the identity header and add the framing policy for
 
 If you enable the [MCP connector](/gotifacts/guides/connect-claude-mcp/), add a
 `handle` that bypasses forward-auth for the machine endpoints, while
-`/mcp/oauth/authorize` falls through to the authenticated catch-all:
+`/mcp/oauth/authorize` falls through to the authenticated catch-all. A `handle`
+takes at most one matcher token, so list the paths in a named matcher rather
+than inline:
 
 ```text
-handle /mcp /mcp/oauth/token /mcp/oauth/register /.well-known/oauth-* {
+@mcp_machine path /mcp /mcp/oauth/token /mcp/oauth/register /.well-known/oauth-*
+handle @mcp_machine {
     reverse_proxy gotifacts:8080
 }
 ```
