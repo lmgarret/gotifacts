@@ -258,6 +258,47 @@ func TestOAuthFlow(t *testing.T) {
 	}
 }
 
+// mcpPrincipal builds a test API-key principal with the given grants.
+func mcpPrincipal(grants ...store.Grant) *auth.Principal {
+	return &auth.Principal{User: "tester", Source: auth.SourceAPIKey, Grants: grants}
+}
+
+// mcpReq wraps a principal in a CallToolRequest the way verifyToken does.
+func mcpReq(p *auth.Principal) *mcpsdk.CallToolRequest {
+	return &mcpsdk.CallToolRequest{Extra: &mcpsdk.RequestExtra{
+		TokenInfo: &mcpauth.TokenInfo{UserID: p.User, Extra: map[string]any{"principal": p}},
+	}}
+}
+
+// newTestServiceVersioned is like newTestService but with versioning enabled.
+func newTestServiceVersioned(t *testing.T) (*Service, *config.Config) {
+	t.Helper()
+	cfg := &config.Config{
+		BaseDomain:         "example.com",
+		DataDir:            t.TempDir(),
+		MaxUploadBytes:     config.DefaultMaxUploadBytes,
+		MaxExtractBytes:    config.DefaultMaxExtractBytes,
+		MaxExtractEntries:  config.DefaultMaxExtractEntries,
+		MCPEnabled:         true,
+		MCPGroup:           "claude",
+		MCPAccessTokenTTL:  time.Hour,
+		MCPRefreshTokenTTL: 24 * time.Hour,
+		AdminUsers:         []string{"tester"},
+		VersioningEnabled:  true,
+		VersioningKeep:     2,
+	}
+	st, err := store.Open(context.Background(), filepath.Join(cfg.DataDir, "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	svc, err := New(cfg, st, ingest.New(cfg, st), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	return svc, cfg
+}
+
 func TestPublishSiteTool(t *testing.T) {
 	s, cfg := newTestService(t)
 	ctx := context.Background()
@@ -297,6 +338,153 @@ func TestPublishSiteTool(t *testing.T) {
 	res, _, _ = s.publishSite(ctx, req, publishInput{Slug: "y", HTML: "  "})
 	if !res.IsError {
 		t.Fatal("expected error for empty html")
+	}
+}
+
+func TestUnpublishSiteTool(t *testing.T) {
+	s, cfg := newTestService(t)
+	ctx := context.Background()
+
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
+	})
+	req := mcpReq(principal)
+
+	// Publish first so there is something to unpublish.
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "report", HTML: "<!doctype html><h1>hi</h1>"}); err != nil || res.IsError {
+		t.Fatalf("publish setup: %v / %+v", err, res.Content)
+	}
+	liveFile := filepath.Join(cfg.SitesDir(), "claude", "report", "index.html")
+	if _, err := os.Stat(liveFile); err != nil {
+		t.Fatalf("live file missing before unpublish: %v", err)
+	}
+
+	// Unpublish succeeds.
+	res, _, err := s.unpublishSite(ctx, req, unpublishInput{Slug: "report"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %+v", res.Content)
+	}
+
+	// Live file gone; quarantine present.
+	if _, err := os.Stat(liveFile); !os.IsNotExist(err) {
+		t.Fatal("live file should be removed after unpublish")
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DeletedDir(), "claude", "report")); err != nil {
+		t.Fatalf("quarantine dir missing: %v", err)
+	}
+
+	// Forbidden outside the grant's group.
+	restricted := mcpPrincipal(store.Grant{Kind: store.GrantGroup, Target: "other", Permissions: []keys.Capability{keys.CapUnpublish}})
+	if res, _, _ := s.unpublishSite(ctx, mcpReq(restricted), unpublishInput{Slug: "anything"}); !res.IsError {
+		t.Fatal("expected error when unpublishing outside grant scope")
+	}
+
+	// Empty slug rejected.
+	if res, _, _ := s.unpublishSite(ctx, req, unpublishInput{Slug: "  "}); !res.IsError {
+		t.Fatal("expected error for empty slug")
+	}
+}
+
+func TestUpdateSiteTool(t *testing.T) {
+	s, _ := newTestService(t)
+	ctx := context.Background()
+
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapPatch},
+	})
+	req := mcpReq(principal)
+
+	// Publish a site to update.
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "article", HTML: "<!doctype html><h1>hi</h1>", Title: "Old Title"}); err != nil || res.IsError {
+		t.Fatalf("publish setup: %v / %+v", err, res.Content)
+	}
+
+	// Update title and tags.
+	newTitle := "New Title"
+	res, out, err := s.updateSite(ctx, req, updateInput{
+		Slug:  "article",
+		Title: &newTitle,
+		Tags:  []string{"news", "update"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %+v", res.Content)
+	}
+	if out.Slug != "article" || out.Group != "claude" {
+		t.Fatalf("unexpected output: %+v", out)
+	}
+
+	// Updating a nonexistent site returns an error result (not found).
+	res, _, _ = s.updateSite(ctx, req, updateInput{Slug: "doesnotexist"})
+	if !res.IsError {
+		t.Fatal("expected error updating nonexistent site")
+	}
+
+	// Forbidden outside the grant's group.
+	restricted := mcpPrincipal(store.Grant{Kind: store.GrantGroup, Target: "other", Permissions: []keys.Capability{keys.CapPatch}})
+	if res, _, _ := s.updateSite(ctx, mcpReq(restricted), updateInput{Slug: "article"}); !res.IsError {
+		t.Fatal("expected error when updating outside grant scope")
+	}
+
+	// Empty slug rejected.
+	if res, _, _ := s.updateSite(ctx, req, updateInput{Slug: ""}); !res.IsError {
+		t.Fatal("expected error for empty slug")
+	}
+}
+
+func TestRollbackSiteTool(t *testing.T) {
+	s, cfg := newTestServiceVersioned(t)
+	ctx := context.Background()
+
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapRollback},
+	})
+	req := mcpReq(principal)
+
+	// Publish v1 then v2; versioning archives v1.
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "page", HTML: "v1"}); err != nil || res.IsError {
+		t.Fatalf("publish v1: %v / %+v", err, res.Content)
+	}
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "page", HTML: "v2"}); err != nil || res.IsError {
+		t.Fatalf("publish v2: %v / %+v", err, res.Content)
+	}
+
+	// Rollback restores v1.
+	res, out, err := s.rollbackSite(ctx, req, rollbackInput{Slug: "page"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %+v", res.Content)
+	}
+	if out.Slug != "page" || out.Group != "claude" {
+		t.Fatalf("unexpected output: %+v", out)
+	}
+	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "page", "index.html"))
+	if string(got) != "v1" {
+		t.Fatalf("after rollback content = %q, want v1", got)
+	}
+
+	// Forbidden outside the grant's group.
+	restricted := mcpPrincipal(store.Grant{Kind: store.GrantGroup, Target: "other", Permissions: []keys.Capability{keys.CapRollback}})
+	if res, _, _ := s.rollbackSite(ctx, mcpReq(restricted), rollbackInput{Slug: "page"}); !res.IsError {
+		t.Fatal("expected error when rolling back outside grant scope")
+	}
+
+	// Empty slug rejected.
+	if res, _, _ := s.rollbackSite(ctx, req, rollbackInput{Slug: ""}); !res.IsError {
+		t.Fatal("expected error for empty slug")
 	}
 }
 

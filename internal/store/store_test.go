@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lmgarret/gotifacts/internal/keys"
 )
@@ -216,6 +217,125 @@ func TestLoadGrantsBadPermissions(t *testing.T) {
 	logs := logbuf.String()
 	if !strings.Contains(logs, "key_id") || !strings.Contains(logs, "totally-bogus") {
 		t.Fatalf("expected a warning mentioning key_id and the offending value, got: %q", logs)
+	}
+}
+
+func TestSoftDelete(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	_, _ = st.UpsertSite(ctx, "claude", "app", SiteInput{Title: "App"})
+
+	// Site is visible before deletion.
+	if _, err := st.GetSite(ctx, "claude", "app"); err != nil {
+		t.Fatalf("GetSite before soft-delete: %v", err)
+	}
+
+	if err := st.SoftDeleteSite(ctx, "claude", "app"); err != nil {
+		t.Fatalf("SoftDeleteSite: %v", err)
+	}
+
+	// GetSite returns ErrNotFound for soft-deleted sites.
+	if _, err := st.GetSite(ctx, "claude", "app"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound after soft-delete, got %v", err)
+	}
+
+	// ListSites never returns soft-deleted sites, even with IncludeHide.
+	sites, _ := st.ListSites(ctx, ListFilter{IncludeHide: true})
+	for _, s := range sites {
+		if s.Group == "claude" && s.Slug == "app" {
+			t.Fatal("soft-deleted site must not appear in ListSites")
+		}
+	}
+}
+
+func TestSoftDeleteIdempotency(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_, _ = st.UpsertSite(ctx, "claude", "app", SiteInput{})
+
+	if err := st.SoftDeleteSite(ctx, "claude", "app"); err != nil {
+		t.Fatalf("first SoftDeleteSite: %v", err)
+	}
+	// Deleting an already-soft-deleted site returns ErrNotFound.
+	if err := st.SoftDeleteSite(ctx, "claude", "app"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second SoftDeleteSite: want ErrNotFound, got %v", err)
+	}
+	// Deleting a nonexistent site also returns ErrNotFound.
+	if err := st.SoftDeleteSite(ctx, "x", "y"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("nonexistent SoftDeleteSite: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestListDeletedBefore(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_, _ = st.UpsertSite(ctx, "", "a", SiteInput{})
+	_, _ = st.UpsertSite(ctx, "", "b", SiteInput{})
+	_ = st.SoftDeleteSite(ctx, "", "a")
+
+	// Future cutoff includes the deleted site.
+	deleted, err := st.ListDeletedBefore(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 1 || deleted[0].Slug != "a" {
+		t.Fatalf("expected [a], got %+v", deleted)
+	}
+	if deleted[0].DeletedAt == nil {
+		t.Fatal("DeletedAt should be non-nil on a soft-deleted site")
+	}
+
+	// Past cutoff returns nothing.
+	none, _ := st.ListDeletedBefore(ctx, time.Now().Add(-time.Hour))
+	if len(none) != 0 {
+		t.Fatalf("expected empty with past cutoff, got %+v", none)
+	}
+
+	// Live site "b" is never included.
+	for _, s := range deleted {
+		if s.Slug == "b" {
+			t.Fatal("live site must not appear in ListDeletedBefore")
+		}
+	}
+}
+
+func TestUpsertRestoresSoftDeleted(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_, _ = st.UpsertSite(ctx, "claude", "app", SiteInput{Title: "v1"})
+	_ = st.SoftDeleteSite(ctx, "claude", "app")
+
+	// Re-upserting the same slug clears deleted_at and updates the title.
+	s, err := st.UpsertSite(ctx, "claude", "app", SiteInput{Title: "v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.DeletedAt != nil {
+		t.Fatalf("deleted_at should be nil after re-upsert, got %v", s.DeletedAt)
+	}
+	if s.Title != "v2" {
+		t.Fatalf("title not updated: %q", s.Title)
+	}
+
+	// GetSite finds it again.
+	if _, err := st.GetSite(ctx, "claude", "app"); err != nil {
+		t.Fatalf("GetSite after re-upsert: %v", err)
+	}
+}
+
+func TestUpsertTouchRestoresSoftDeleted(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_, _ = st.UpsertSite(ctx, "", "demo", SiteInput{})
+	_ = st.SoftDeleteSite(ctx, "", "demo")
+
+	// UpsertSiteTouch (called by rollback) clears deleted_at.
+	if _, err := st.UpsertSiteTouch(ctx, "", "demo"); err != nil {
+		t.Fatalf("UpsertSiteTouch: %v", err)
+	}
+	if _, err := st.GetSite(ctx, "", "demo"); err != nil {
+		t.Fatalf("GetSite after UpsertSiteTouch: %v", err)
 	}
 }
 
