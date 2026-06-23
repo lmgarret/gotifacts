@@ -38,7 +38,10 @@ example.com {
 	# Only needed if GOTIFACTS_MCP_ENABLED. Called server-to-server by the MCP
 	# client, so no SSO. /mcp/oauth/authorize is intentionally absent — it falls
 	# through to the forward-auth catch-all below (it is a browser consent page).
-	handle /mcp /mcp/oauth/token /mcp/oauth/register /.well-known/oauth-* {
+	# `handle` accepts only one matcher token, so list the paths in a named
+	# matcher rather than inline.
+	@mcp_machine path /mcp /mcp/oauth/token /mcp/oauth/register /.well-known/oauth-*
+	handle @mcp_machine {
 		reverse_proxy gotifacts:8080
 	}
 
