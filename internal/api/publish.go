@@ -138,4 +138,3 @@ func spoolToTemp(part *multipart.Part) (*os.File, error) {
 func normalizeGroup(group string) string {
 	return strings.Trim(strings.ToLower(strings.TrimSpace(group)), "/")
 }
-
