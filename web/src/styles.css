@@ -330,10 +330,8 @@ main {
     line-height: 1;
 }
 
-/* List rows */
-.rows {
-    display: flex;
-    flex-direction: column;
+/* Sites table */
+.table-wrap {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
@@ -342,55 +340,118 @@ main {
     margin: 0.75rem 0;
 }
 
-.row {
+.sites-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.sites-table th,
+.sites-table td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.sites-table thead th {
+    color: var(--muted);
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+/* Sortable header: the whole cell is a button. */
+.sites-table th.sortable {
+    padding: 0;
+}
+
+.sites-table th.sortable button {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    padding: 0.55rem 0.85rem;
-    border-bottom: 1px solid var(--border);
+    gap: 0.3rem;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0.5rem 0.75rem;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+}
+
+.sites-table th.sortable button:hover {
+    color: var(--accent);
+}
+
+.sites-table th.active button {
+    color: var(--accent);
+}
+
+.sort-arrow {
+    font-size: 0.7rem;
+    width: 0.7rem;
+}
+
+.sites-table tbody tr {
     cursor: pointer;
     transition: background 0.15s;
 }
 
-.row:last-child {
+.sites-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-.row:hover,
-.row:focus-visible {
+.sites-table tbody tr:hover,
+.sites-table tbody tr:focus-visible {
     background: var(--bg);
     outline: none;
 }
 
-.row.hidden {
+.sites-table tbody tr.hidden {
     opacity: 0.6;
 }
 
-.row-main {
-    min-width: 0;
-    flex: 1 1 auto;
+.sites-table .col-icon {
+    width: 1.5rem;
+    padding-right: 0;
 }
 
-.row-main h3 {
-    margin: 0;
-    font-size: 0.95rem;
+.sites-table .col-title {
+    min-width: 10rem;
+}
+
+.sites-table .t-title {
+    display: block;
+    font-weight: 600;
+}
+
+.sites-table .t-desc {
+    display: block;
+    color: var(--muted);
+    font-size: 0.8rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 28rem;
 }
 
-.row .desc {
-    margin: 0;
+.sites-table .col-group {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.82rem;
     color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
-.row .meta {
-    flex: 0 0 auto;
-    justify-content: flex-end;
+.sites-table .col-date {
+    white-space: nowrap;
+    color: var(--muted);
+}
+
+.sites-table .col-tags .meta {
+    justify-content: flex-start;
 }
 
 /* Layout toggle */

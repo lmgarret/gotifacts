@@ -1,17 +1,16 @@
 import { useState } from "react";
 import type { Site, TreeNode } from "../api";
-import { SiteCard, type Layout } from "./SiteCard";
+import { SiteCard } from "./SiteCard";
 
 interface Props {
   node: TreeNode;
   base: string;
   depth: number;
-  layout: Layout;
   onSelect: (s: Site) => void;
 }
 
 // GroupSection renders a collapsible group with its sites and nested subgroups.
-export function GroupSection({ node, base, depth, layout, onSelect }: Props) {
+export function GroupSection({ node, base, depth, onSelect }: Props) {
   const [open, setOpen] = useState(true);
   const isRoot = depth === 0;
 
@@ -27,27 +26,14 @@ export function GroupSection({ node, base, depth, layout, onSelect }: Props) {
       {open && (
         <div className="group-body">
           {node.sites.length > 0 && (
-            <div className={layout === "list" ? "rows" : "cards"}>
+            <div className="cards">
               {node.sites.map((s) => (
-                <SiteCard
-                  key={`${s.group}/${s.slug}`}
-                  site={s}
-                  base={base}
-                  layout={layout}
-                  onSelect={onSelect}
-                />
+                <SiteCard key={`${s.group}/${s.slug}`} site={s} base={base} onSelect={onSelect} />
               ))}
             </div>
           )}
           {node.groups.map((g) => (
-            <GroupSection
-              key={g.path}
-              node={g}
-              base={base}
-              depth={depth + 1}
-              layout={layout}
-              onSelect={onSelect}
-            />
+            <GroupSection key={g.path} node={g} base={base} depth={depth + 1} onSelect={onSelect} />
           ))}
         </div>
       )}
