@@ -163,13 +163,17 @@ func (p *Publisher) swap(stage, live string, sp router.SitePath) error {
 	return nil
 }
 
+// versionStampLayout is the time format used to name archived version
+// directories. It is lexicographically sortable (sort order == time order).
+const versionStampLayout = "20060102T150405.000000000Z"
+
 // archiveVersion moves live into the versions dir under a timestamp, then prunes.
 func (p *Publisher) archiveVersion(live string, sp router.SitePath) error {
 	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.Dir()))
 	if err := os.MkdirAll(verRoot, 0o755); err != nil {
 		return err
 	}
-	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+	stamp := time.Now().UTC().Format(versionStampLayout)
 	dst := filepath.Join(verRoot, stamp)
 	if err := os.Rename(live, dst); err != nil {
 		return fmt.Errorf("archive version: %w", err)

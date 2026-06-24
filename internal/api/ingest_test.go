@@ -255,6 +255,13 @@ func TestIngestCapabilityGating(t *testing.T) {
 		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish},
 	}})
 
+	// A second key may roll back under "previews" (also gates revision listing).
+	rbTok := mintKey(t, st, false, []store.Grant{{
+		Kind:        store.GrantGroup,
+		Target:      "previews",
+		Permissions: []keys.Capability{keys.CapRollback},
+	}})
+
 	cases := []struct {
 		name       string
 		method     string
@@ -268,6 +275,9 @@ func TestIngestCapabilityGating(t *testing.T) {
 		{"unpublish unrelated apex site -> 403", http.MethodDelete, "http://example.com/ingest/sites/other", tok, http.StatusForbidden},
 		{"patch without cap -> 403", http.MethodPatch, "http://example.com/ingest/sites/previews/pr-1", tok, http.StatusForbidden},
 		{"rollback without cap -> 403", http.MethodPost, "http://example.com/ingest/sites/previews/pr-1/rollback", tok, http.StatusForbidden},
+		{"list revisions without rollback cap -> 403", http.MethodGet, "http://example.com/ingest/sites/previews/pr-1/revisions", tok, http.StatusForbidden},
+		{"list revisions with rollback cap -> 200 (empty)", http.MethodGet, "http://example.com/ingest/sites/previews/pr-1/revisions", rbTok, http.StatusOK},
+		{"list revisions out of scope -> 403", http.MethodGet, "http://example.com/ingest/sites/prod/app/revisions", rbTok, http.StatusForbidden},
 		{"missing token -> 401", http.MethodDelete, "http://example.com/ingest/sites/previews/pr-1", "", http.StatusUnauthorized},
 	}
 	for _, c := range cases {

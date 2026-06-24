@@ -15,10 +15,11 @@ var errBadSuffix = errors.New("path missing required suffix")
 
 func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request, p *auth.Principal) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":        p.User,
-		"is_admin":    p.Admin,
-		"base_domain": s.cfg.BaseDomain,
-		"mcp_enabled": s.mcp != nil,
+		"user":               p.User,
+		"is_admin":           p.Admin,
+		"base_domain":        s.cfg.BaseDomain,
+		"mcp_enabled":        s.mcp != nil,
+		"versioning_enabled": s.cfg.VersioningEnabled,
 	})
 }
 
@@ -130,10 +131,25 @@ func (s *Server) handleRollbackSite(w http.ResponseWriter, r *http.Request, p *a
 	s.rollbackSite(w, r, p, sp)
 }
 
-// rollbackSite restores the named site's previous version and writes the
-// resulting site as JSON. Shared by the management and ingest planes.
+// rollbackSite restores a previous version of the named site and writes the
+// resulting site as JSON. With an empty body it restores the most recent
+// version; with a {"revision": "<id>"} body it promotes that specific revision.
+// Shared by the management and ingest planes.
 func (s *Server) rollbackSite(w http.ResponseWriter, r *http.Request, p *auth.Principal, sp router.SitePath) {
-	if err := s.pub.Rollback(r.Context(), sp); err != nil {
+	var body struct {
+		Revision string `json:"revision"`
+	}
+	if r.Body != nil {
+		// Body is optional; ignore decode errors from an empty/absent body.
+		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body)
+	}
+	var err error
+	if body.Revision != "" {
+		err = s.pub.RollbackTo(r.Context(), sp, body.Revision)
+	} else {
+		err = s.pub.Rollback(r.Context(), sp)
+	}
+	if err != nil {
 		s.log.Warn("site rollback failed", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

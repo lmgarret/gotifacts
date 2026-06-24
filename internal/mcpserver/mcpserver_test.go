@@ -20,6 +20,7 @@ import (
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/ingest"
 	"github.com/lmgarret/gotifacts/internal/keys"
+	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -486,6 +487,109 @@ func TestRollbackSiteTool(t *testing.T) {
 	if res, _, _ := s.rollbackSite(ctx, req, rollbackInput{Slug: ""}); !res.IsError {
 		t.Fatal("expected error for empty slug")
 	}
+}
+
+func TestListRevisionsTool(t *testing.T) {
+	s, _ := newTestServiceVersioned(t)
+	ctx := context.Background()
+
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapRollback},
+	})
+	req := mcpReq(principal)
+
+	// Publish twice so there is a current revision plus one archived version.
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "page", HTML: "v1"}); err != nil || res.IsError {
+		t.Fatalf("publish v1: %v / %+v", err, res.Content)
+	}
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "page", HTML: "v2"}); err != nil || res.IsError {
+		t.Fatalf("publish v2: %v / %+v", err, res.Content)
+	}
+
+	res, out, err := s.listRevisions(ctx, req, listRevisionsInput{Slug: "page"})
+	if err != nil || res.IsError {
+		t.Fatalf("list revisions: %v / %+v", err, res.Content)
+	}
+	if len(out.Revisions) != 2 {
+		t.Fatalf("want 2 revisions, got %d: %+v", len(out.Revisions), out.Revisions)
+	}
+	if !out.Revisions[0].Current || out.Revisions[0].ID != "current" {
+		t.Fatalf("first revision should be current, got %+v", out.Revisions[0])
+	}
+	if out.Revisions[1].Current {
+		t.Fatalf("second revision should be archived, got %+v", out.Revisions[1])
+	}
+
+	// Forbidden outside the grant's group.
+	restricted := mcpPrincipal(store.Grant{Kind: store.GrantGroup, Target: "other", Permissions: []keys.Capability{keys.CapRollback}})
+	if res, _, _ := s.listRevisions(ctx, mcpReq(restricted), listRevisionsInput{Slug: "page"}); !res.IsError {
+		t.Fatal("expected error when listing outside grant scope")
+	}
+
+	// Empty slug rejected.
+	if res, _, _ := s.listRevisions(ctx, req, listRevisionsInput{Slug: ""}); !res.IsError {
+		t.Fatal("expected error for empty slug")
+	}
+}
+
+func TestRollbackSiteToolRevision(t *testing.T) {
+	s, cfg := newTestServiceVersioned(t)
+	ctx := context.Background()
+
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapRollback},
+	})
+	req := mcpReq(principal)
+
+	// Publish v1 then v2; versioning archives v1 as a retained revision.
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "page", HTML: "v1"}); err != nil || res.IsError {
+		t.Fatalf("publish v1: %v / %+v", err, res.Content)
+	}
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "page", HTML: "v2"}); err != nil || res.IsError {
+		t.Fatalf("publish v2: %v / %+v", err, res.Content)
+	}
+
+	// The sole archived revision holds v1; promote it explicitly by ID.
+	sp, err := router.NewSitePath("claude", "page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := archivedRevisionID(t, s.pub, sp)
+	if res, _, err := s.rollbackSite(ctx, req, rollbackInput{Slug: "page", Revision: target}); err != nil || res.IsError {
+		t.Fatalf("rollback to revision %q: %v / %+v", target, err, res.Content)
+	}
+	if got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "page", "index.html")); string(got) != "v1" {
+		t.Fatalf("after revision rollback content = %q, want v1", got)
+	}
+
+	// Unknown revision is rejected.
+	if res, _, _ := s.rollbackSite(ctx, req, rollbackInput{Slug: "page", Revision: "does-not-exist"}); !res.IsError {
+		t.Fatal("expected error for unknown revision")
+	}
+}
+
+// archivedRevisionID returns the ID of the single archived (non-current)
+// revision of sp, failing the test if there isn't exactly one.
+func archivedRevisionID(t *testing.T, pub *ingest.Publisher, sp router.SitePath) string {
+	t.Helper()
+	revs, err := pub.ListRevisions(sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, rv := range revs {
+		if !rv.Current {
+			ids = append(ids, rv.ID)
+		}
+	}
+	if len(ids) != 1 {
+		t.Fatalf("want exactly one archived revision, got %d", len(ids))
+	}
+	return ids[0]
 }
 
 // ctxReq builds a request carrying a context (satisfies the noctx linter, which

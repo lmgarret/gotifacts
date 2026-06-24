@@ -52,7 +52,8 @@ consent, then call the appropriate MCP tool (or `curl` command). Operations:
 | Publish / share a page | `publish_site` / POST |
 | Unpublish / take down | `unpublish_site` / DELETE |
 | Update title or tags | `update_site` / PATCH |
-| Roll back to previous | `rollback_site` / POST rollback |
+| List a site's revisions | `list_revisions` / GET revisions |
+| Roll back to previous (or a chosen revision) | `rollback_site` / POST rollback |
 | Restore from quarantine | `restore_site` / POST restore |
 | Permanently delete | `purge_site` / POST purge |
 
@@ -60,3 +61,6 @@ Re-publishing the same `group`/`slug` replaces the existing site. Unpublishing
 keeps files in quarantine for the server's configured TTL (default 30 days)
 before permanent removal. `restore_site` brings the site back online within the
 grace period; `purge_site` destroys it immediately and is irreversible.
+`rollback_site` restores the most recent archived version, or a specific one
+when given a `revision` (an archive timestamp from the
+[revisions list](/gotifacts/guides/versioning-and-rollback/)).

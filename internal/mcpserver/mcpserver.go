@@ -84,8 +84,12 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 	}, s.updateSite)
 	mcpsdk.AddTool(srv, &mcpsdk.Tool{
 		Name:        "rollback_site",
-		Description: "Restore the most recent archived version of a site, replacing the current live content. Requires versioning to be enabled on the gotifacts instance.",
+		Description: "Restore a previous version of a site, replacing the current live content. With no revision it restores the most recent archived version; pass a revision (an archive timestamp) to promote that specific version. Requires versioning to be enabled on the gotifacts instance.",
 	}, s.rollbackSite)
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{
+		Name:        "list_revisions",
+		Description: "List a site's available revisions: the current (live) content plus any retained archived versions, newest first. Use this to find the revision id (an archive timestamp) to pass to rollback_site. Requires versioning to be enabled on the gotifacts instance.",
+	}, s.listRevisions)
 	mcpsdk.AddTool(srv, &mcpsdk.Tool{
 		Name:        "restore_site",
 		Description: "Bring a soft-deleted (unpublished) site back online by moving its quarantined files back to live and clearing its deleted status. Use this to undo an accidental unpublish within the grace period.",
@@ -244,10 +248,79 @@ func (s *Service) updateSite(ctx context.Context, req *mcpsdk.CallToolRequest, i
 	}, out, nil
 }
 
-// rollbackInput identifies the site to roll back.
+// listRevisionsInput identifies the site whose revisions to list.
+type listRevisionsInput struct {
+	Slug  string `json:"slug"`
+	Group string `json:"group,omitempty"`
+}
+
+// revisionView is one revision in the list_revisions output.
+type revisionView struct {
+	// ID is "current" for the live content, otherwise the archive timestamp to
+	// pass to rollback_site.
+	ID string `json:"id"`
+	// Current is true for the live content.
+	Current bool `json:"current"`
+	// CreatedAt is the revision's creation time in RFC3339.
+	CreatedAt string `json:"created_at"`
+}
+
+// listRevisionsOutput is the structured result of list_revisions.
+type listRevisionsOutput struct {
+	Group     string         `json:"group"`
+	Slug      string         `json:"slug"`
+	Revisions []revisionView `json:"revisions"`
+}
+
+// listRevisions is the MCP tool handler that lists a site's revisions.
+func (s *Service) listRevisions(_ context.Context, req *mcpsdk.CallToolRequest, in listRevisionsInput) (*mcpsdk.CallToolResult, listRevisionsOutput, error) {
+	p := principalFromRequest(req)
+	if p == nil {
+		return errorResult("authentication required"), listRevisionsOutput{}, nil
+	}
+	group := strings.TrimSpace(in.Group)
+	if group == "" {
+		group = s.cfg.MCPGroup
+	}
+	if strings.TrimSpace(in.Slug) == "" {
+		return errorResult("slug must not be empty"), listRevisionsOutput{}, nil
+	}
+	if !p.Can(keys.CapRollback, group, in.Slug) {
+		return errorResult(fmt.Sprintf("this connection is not permitted to view revisions of %q in group %q", in.Slug, group)), listRevisionsOutput{}, nil
+	}
+	sp, err := router.NewSitePath(group, in.Slug)
+	if err != nil {
+		return errorResult("invalid site path: " + err.Error()), listRevisionsOutput{}, nil
+	}
+	revs, err := s.pub.ListRevisions(sp)
+	if err != nil {
+		s.log.Warn("mcp list revisions failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
+		return errorResult("failed to list revisions: " + err.Error()), listRevisionsOutput{}, nil
+	}
+	out := listRevisionsOutput{Group: group, Slug: in.Slug, Revisions: make([]revisionView, 0, len(revs))}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Site %q in group %q has %d revision(s):\n", in.Slug, group, len(revs))
+	for _, rv := range revs {
+		out.Revisions = append(out.Revisions, revisionView{ID: rv.ID, Current: rv.Current, CreatedAt: rv.CreatedAt.Format(time.RFC3339)})
+		label := "archived"
+		if rv.Current {
+			label = "current"
+		}
+		fmt.Fprintf(&b, "- %s (%s, %s)\n", rv.ID, label, rv.CreatedAt.Format(time.RFC3339))
+	}
+	return &mcpsdk.CallToolResult{
+		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: b.String()}},
+	}, out, nil
+}
+
+// rollbackInput identifies the site to roll back, and optionally which revision
+// to promote.
 type rollbackInput struct {
 	Slug  string `json:"slug"`
 	Group string `json:"group,omitempty"`
+	// Revision is the archive timestamp to promote. Empty restores the most
+	// recent archived version.
+	Revision string `json:"revision,omitempty"`
 }
 
 // rollbackOutput is the structured result of a successful rollback.
@@ -256,7 +329,8 @@ type rollbackOutput struct {
 	Slug  string `json:"slug"`
 }
 
-// rollbackSite is the MCP tool handler for restoring the previous site version.
+// rollbackSite is the MCP tool handler for restoring a previous site version:
+// the most recent archived version, or a specific revision when one is given.
 func (s *Service) rollbackSite(ctx context.Context, req *mcpsdk.CallToolRequest, in rollbackInput) (*mcpsdk.CallToolResult, rollbackOutput, error) {
 	p := principalFromRequest(req)
 	if p == nil {
@@ -276,14 +350,25 @@ func (s *Service) rollbackSite(ctx context.Context, req *mcpsdk.CallToolRequest,
 	if err != nil {
 		return errorResult("invalid site path: " + err.Error()), rollbackOutput{}, nil
 	}
-	if err := s.pub.Rollback(ctx, sp); err != nil {
-		s.log.Warn("mcp rollback failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
-		return errorResult("rollback failed: " + err.Error()), rollbackOutput{}, nil
+	rev := strings.TrimSpace(in.Revision)
+	var rollErr error
+	if rev != "" {
+		rollErr = s.pub.RollbackTo(ctx, sp, rev)
+	} else {
+		rollErr = s.pub.Rollback(ctx, sp)
 	}
-	s.log.Info("site rolled back", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
+	if rollErr != nil {
+		s.log.Warn("mcp rollback failed", "user", p.User, "group", group, "slug", in.Slug, "revision", rev, "err", rollErr)
+		return errorResult("rollback failed: " + rollErr.Error()), rollbackOutput{}, nil
+	}
+	s.log.Info("site rolled back", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug, "revision", rev)
 	out := rollbackOutput{Group: group, Slug: in.Slug}
+	msg := fmt.Sprintf("Site %q in group %q has been rolled back to the previous version.", in.Slug, group)
+	if rev != "" {
+		msg = fmt.Sprintf("Site %q in group %q has been rolled back to revision %q.", in.Slug, group, rev)
+	}
 	return &mcpsdk.CallToolResult{
-		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been rolled back to the previous version.", in.Slug, group)}},
+		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: msg}},
 	}, out, nil
 }
 

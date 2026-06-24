@@ -149,19 +149,53 @@ Omitted fields are left unchanged. Requires the `patch` capability.
 
 ---
 
+### List revisions
+
+Lists a site's revisions: the current (live) content plus retained archived
+versions, newest first. Use it to find the revision id (an archive timestamp) to
+pass to a rollback. Requires versioning to be enabled on the gotifacts instance.
+
+**MCP:** call `list_revisions` with `slug` and optional `group`.
+
+**API key — curl:** (requires the `rollback` capability)
+
+```sh
+curl -fsS \
+  -H "Authorization: Bearer ${GOTIFACTS_API_KEY}" \
+  "${GOTIFACTS_URL}/ingest/sites/<group>/<slug>/revisions"
+```
+
+---
+
 ### Roll back
 
-Restores the most recent archived version of the site, swapping current live
-content into the version history. Requires versioning to be enabled on the
-gotifacts instance (`GOTIFACTS_VERSIONING_ENABLED=true`).
+Restores a previous version of the site, swapping current live content into the
+version history. By default it restores the **most recent** archived version;
+you can also promote a **specific revision** by its archive timestamp. Requires
+versioning to be enabled on the gotifacts instance
+(`GOTIFACTS_VERSIONING_ENABLED=true`).
 
-**MCP:** call `rollback_site` with `slug` and optional `group`.
+Find revision IDs with `list_revisions` (above), or in the portal's **Files**
+tab.
 
-**API key — curl:**
+**MCP:** call `rollback_site` with `slug`, optional `group`, and optional
+`revision` (omit `revision` to restore the most recent version).
+
+**API key — curl (most recent):**
 
 ```sh
 curl -fsS -X POST \
   -H "Authorization: Bearer ${GOTIFACTS_API_KEY}" \
+  "${GOTIFACTS_URL}/ingest/sites/<group>/<slug>/rollback"
+```
+
+**API key — curl (specific revision):**
+
+```sh
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${GOTIFACTS_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"revision":"20060102T150405.000000000Z"}' \
   "${GOTIFACTS_URL}/ingest/sites/<group>/<slug>/rollback"
 ```
 

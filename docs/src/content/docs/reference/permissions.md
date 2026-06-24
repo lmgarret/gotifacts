@@ -15,7 +15,7 @@ capabilities to a target.
 | --- | --- |
 | `publish` | create/replace sites — `POST /ingest/sites` |
 | `unpublish` | soft-delete sites — `DELETE /ingest/sites/…` (files kept in quarantine) |
-| `rollback` | restore a site's previous version — `POST /ingest/sites/…/rollback` |
+| `rollback` | list revisions and restore a previous version, or promote a chosen revision — `GET`/`POST /ingest/sites/…/revisions[/rollback]` |
 | `patch` | edit site metadata — `PATCH /ingest/sites/…` |
 | `purge` | permanently destroy a quarantined site — `POST /ingest/sites/…/purge` |
 
@@ -27,7 +27,7 @@ Unpublish and purge are intentionally separate: `unpublish` takes a site offline
 | --- | --- | --- |
 | **Admin** | forward-auth allowlist **or** an `admin` key | everything: manage keys + all capabilities on every site |
 | **Scoped key** | a key with one or more grants | only the granted capabilities, confined to each grant's target |
-| **Viewer** | any authenticated forward-auth user | view the portal and `GET /api/sites` |
+| **Viewer** | any authenticated forward-auth user | view the portal, `GET /api/sites`, and browse/download any site's files and revisions (`GET /api/sites/…/revisions…`) — hidden sites stay admin-only |
 
 ## Targets
 

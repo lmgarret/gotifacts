@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, type Me } from "./api";
+import { api, type Me, type Site } from "./api";
 import { Portal } from "./components/Portal";
+import { SitePage } from "./components/SitePage";
 import { KeysView } from "./components/KeysView";
 import { ConnectionsView } from "./components/ConnectionsView";
 import { TrashView } from "./components/TrashView";
@@ -25,6 +26,14 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("portal");
   const [trashCount, setTrashCount] = useState(0);
+  // When set (within the portal view), the dedicated per-site page is shown.
+  const [openSite, setOpenSite] = useState<Site | null>(null);
+
+  // go switches the top-level view and leaves any open site page.
+  const go = (v: View) => {
+    setOpenSite(null);
+    setView(v);
+  };
 
   useEffect(() => {
     api
@@ -56,22 +65,22 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand" onClick={() => setView("portal")} role="button" tabIndex={0}>
+        <div className="brand" onClick={() => go("portal")} role="button" tabIndex={0}>
           <Logo />
         </div>
         <nav>
-          <button className={view === "portal" ? "active" : ""} onClick={() => setView("portal")}>
+          <button className={view === "portal" ? "active" : ""} onClick={() => go("portal")}>
             Portal
           </button>
           {me.is_admin && (
-            <button className={view === "keys" ? "active" : ""} onClick={() => setView("keys")}>
+            <button className={view === "keys" ? "active" : ""} onClick={() => go("keys")}>
               API Keys
             </button>
           )}
           {me.is_admin && me.mcp_enabled && (
             <button
               className={view === "connections" ? "active" : ""}
-              onClick={() => setView("connections")}
+              onClick={() => go("connections")}
             >
               Connections
             </button>
@@ -79,7 +88,7 @@ export function App() {
           {me.is_admin && (
             <button
               className={view === "trash" ? "active" : ""}
-              onClick={() => setView("trash")}
+              onClick={() => go("trash")}
             >
               Trash{trashCount > 0 && <span className="nav-badge">{trashCount}</span>}
             </button>
@@ -91,7 +100,17 @@ export function App() {
         </div>
       </header>
       <main>
-        {view === "portal" && <Portal me={me} />}
+        {view === "portal" && !openSite && <Portal me={me} onOpenSite={setOpenSite} />}
+        {view === "portal" && openSite && (
+          <SitePage
+            site={openSite}
+            base={me.base_domain}
+            isAdmin={me.is_admin}
+            versioningEnabled={me.versioning_enabled ?? false}
+            onBack={() => setOpenSite(null)}
+            onGone={() => setOpenSite(null)}
+          />
+        )}
         {view === "keys" && me.is_admin && <KeysView />}
         {view === "connections" && me.is_admin && me.mcp_enabled && <ConnectionsView />}
         {view === "trash" && me.is_admin && <TrashView onCountChange={setTrashCount} />}

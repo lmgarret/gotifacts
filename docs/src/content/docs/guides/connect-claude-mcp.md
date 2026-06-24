@@ -10,7 +10,8 @@ For the consumer Claude apps (claude.ai mobile/web), the
 variables. Instead, expose gotifacts' **MCP connector**: an OAuth 2.1-protected
 [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` that
 exposes the full site lifecycle as tools (`publish_site`, `update_site`,
-`unpublish_site`, `rollback_site`, `restore_site`, `purge_site`). Claude's
+`unpublish_site`, `list_revisions`, `rollback_site`, `restore_site`,
+`purge_site`). Claude's
 "custom connector" UI authenticates remote MCP servers exclusively via OAuth, so
 this is the only path that works on mobile/web.
 

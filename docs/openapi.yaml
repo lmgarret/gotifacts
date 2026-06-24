@@ -200,17 +200,118 @@ paths:
     post:
       tags: [Management]
       summary: Roll back a site (admin)
-      description: Restores the latest archived version. Requires versioning enabled.
+      description: |
+        Restores a previous version (versioning must be enabled). With an empty
+        body it restores the **latest** archived version; with a `revision` it
+        promotes that specific revision (see `GET …/revisions`). Promotion copies
+        the chosen revision to live, archiving the current content first, so the
+        promoted revision remains in history.
       security:
         - forwardAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RollbackRequest" }
       responses:
         "200":
           description: The restored site.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Site" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/sites/{path}/revisions:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    get:
+      tags: [Management]
+      summary: List a site's revisions
+      description: |
+        Returns the live content (`current`) first, then retained archived
+        versions newest-first. Available to any authenticated user; hidden sites
+        are visible only to admins.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The site's revisions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevisionsResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/sites/{path}/revisions/{rev}/files:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+      - $ref: "#/components/parameters/Revision"
+    get:
+      tags: [Management]
+      summary: Browse a revision's file tree
+      description: |
+        Returns the revision's files as a nested tree. Available to any
+        authenticated user; hidden sites are visible only to admins.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The file tree (root node).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileNode" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/sites/{path}/revisions/{rev}/file:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+      - $ref: "#/components/parameters/Revision"
+      - name: path
+        in: query
+        required: true
+        description: Slash-separated file path within the revision.
+        schema: { type: string }
+    get:
+      tags: [Management]
+      summary: Download a single file from a revision
+      description: |
+        Streams one file with a `Content-Disposition: attachment` header.
+        Available to any authenticated user; hidden sites are visible only to
+        admins.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The file contents.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/sites/{path}/revisions/{rev}/archive:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+      - $ref: "#/components/parameters/Revision"
+    get:
+      tags: [Management]
+      summary: Download a whole revision as a zip
+      description: |
+        Streams all of the revision's files as a `.zip`. Available to any
+        authenticated user; hidden sites are visible only to admins.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: A zip archive of the revision.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/keys:
@@ -353,6 +454,26 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /ingest/sites/{path}/revisions:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    get:
+      tags: [Ingest]
+      summary: List a site's revisions (ingest plane)
+      description: |
+        Lists the site's revisions (current plus retained archived versions),
+        so automation can discover the revision id to roll back to. Requires the
+        `rollback` capability on the target group (versioning must be enabled).
+      responses:
+        "200":
+          description: The site's revisions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevisionsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /ingest/sites/{path}/rollback:
     parameters:
       - $ref: "#/components/parameters/SitePath"
@@ -360,14 +481,21 @@ paths:
       tags: [Ingest]
       summary: Roll back a site
       description: |
-        Requires the `rollback` capability on the target group. Restores the
-        latest archived version (versioning must be enabled).
+        Requires the `rollback` capability on the target group (versioning must
+        be enabled). With an empty body it restores the latest archived version;
+        with a `revision` it promotes that specific revision.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RollbackRequest" }
       responses:
         "200":
           description: The restored site.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Site" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -412,6 +540,12 @@ components:
       in: path
       required: true
       description: Full site path — group segments (0–2) plus the slug, e.g. `claude/app` or `demo`.
+      schema: { type: string }
+    Revision:
+      name: rev
+      in: path
+      required: true
+      description: A revision ID — `current` for the live content, or an archive timestamp from `GET …/revisions`.
       schema: { type: string }
 
   responses:
@@ -511,6 +645,48 @@ components:
         slug: { type: string }
         updated_at: { type: string, format: date-time }
       required: [url, group, slug, updated_at]
+
+    RollbackRequest:
+      type: object
+      description: |
+        Optional rollback target. Omit `revision` (or send an empty body) to
+        restore the latest archived version.
+      properties:
+        revision:
+          type: string
+          description: A revision ID to promote (`current` is a no-op). Defaults to the latest archived version.
+
+    Revision:
+      type: object
+      description: One browsable version of a site.
+      properties:
+        id:
+          type: string
+          description: "`current` for the live content, otherwise the archive timestamp."
+        current: { type: boolean, description: True for the live content. }
+        created_at: { type: string, format: date-time }
+      required: [id, current, created_at]
+
+    RevisionsResponse:
+      type: object
+      properties:
+        revisions:
+          type: array
+          items: { $ref: "#/components/schemas/Revision" }
+      required: [revisions]
+
+    FileNode:
+      type: object
+      description: A node in a revision's file tree. Directories carry `children`; files carry a `size`.
+      properties:
+        name: { type: string, description: Segment name; empty for the root node. }
+        path: { type: string, description: Slash path relative to the revision root; empty for the root. }
+        dir: { type: boolean }
+        size: { type: integer, format: int64, description: File size in bytes (files only). }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/FileNode" }
+      required: [name, path, dir]
 
     SitePatch:
       type: object
@@ -614,6 +790,9 @@ components:
         is_admin: { type: boolean }
         base_domain: { type: string }
         mcp_enabled: { type: boolean }
+        versioning_enabled:
+          type: boolean
+          description: Whether prior site versions are retained on replace and rollback is available.
       required: [user, is_admin, base_domain]
 
     SitesResponse:

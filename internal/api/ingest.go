@@ -54,6 +54,22 @@ func (s *Server) handleIngestPatch(w http.ResponseWriter, r *http.Request, p *au
 	s.patchSite(w, r, p, sp.Group, sp.Slug)
 }
 
+// handleIngestRevisions lists a site's revisions for a key holding the rollback
+// capability, so automation can discover the revision id to roll back to. It is
+// the ingest-plane counterpart of GET /api/sites/{path}/revisions.
+func (s *Server) handleIngestRevisions(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
+	sp, err := parseSitePath(r.PathValue("rest"), "revisions")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid revisions path")
+		return
+	}
+	if !p.Can(keys.CapRollback, sp.Group, sp.Slug) {
+		writeError(w, http.StatusForbidden, "key not permitted to view revisions of this group")
+		return
+	}
+	s.listRevisions(w, r, sp)
+}
+
 // handleIngestAction dispatches POST /ingest/sites/{path}/{action} based on the
 // trailing action suffix: "rollback" or "purge".
 func (s *Server) handleIngestAction(w http.ResponseWriter, r *http.Request, p *auth.Principal) {

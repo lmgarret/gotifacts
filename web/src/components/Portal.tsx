@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Me, type Site, type TreeNode } from "../api";
 import { GroupSection } from "./GroupSection";
 import { SitesTable } from "./SitesTable";
-import { SiteDetail } from "./SiteDetail";
 import { SiteCreateModal } from "./SiteCreateModal";
 
 interface Props {
   me: Me;
+  // onOpenSite navigates to the dedicated page for the chosen site.
+  onOpenSite: (s: Site) => void;
 }
 
 type Layout = "card" | "table";
@@ -17,7 +18,7 @@ function initialLayout(): Layout {
   return localStorage.getItem(LAYOUT_KEY) === "table" ? "table" : "card";
 }
 
-export function Portal({ me }: Props) {
+export function Portal({ me, onOpenSite }: Props) {
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [count, setCount] = useState(0);
@@ -30,7 +31,6 @@ export function Portal({ me }: Props) {
   const [group, setGroup] = useState("");
   const [sort, setSort] = useState("date");
   const [showHidden, setShowHidden] = useState(false);
-  const [selected, setSelected] = useState<Site | null>(null);
   const [creating, setCreating] = useState(false);
   const [layout, setLayout] = useState<Layout>(initialLayout);
 
@@ -179,26 +179,14 @@ export function Portal({ me }: Props) {
 
       {tree && layout === "card" && (
         <div className="tree">
-          <GroupSection node={tree} base={me.base_domain} depth={0} onSelect={setSelected} />
+          <GroupSection node={tree} base={me.base_domain} depth={0} onSelect={onOpenSite} />
         </div>
       )}
 
       {layout === "table" && sites.length > 0 && (
-        <SitesTable sites={sites} base={me.base_domain} onSelect={setSelected} />
+        <SitesTable sites={sites} base={me.base_domain} onSelect={onOpenSite} />
       )}
 
-      {selected && (
-        <SiteDetail
-          site={selected}
-          base={me.base_domain}
-          isAdmin={me.is_admin}
-          onClose={() => setSelected(null)}
-          onChanged={() => {
-            setSelected(null);
-            load();
-          }}
-        />
-      )}
 
       {creating && (
         <SiteCreateModal

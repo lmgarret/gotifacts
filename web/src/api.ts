@@ -6,6 +6,8 @@ export interface Me {
   is_admin: boolean;
   base_domain: string;
   mcp_enabled: boolean;
+  // versioning_enabled is false on older servers that don't report it.
+  versioning_enabled?: boolean;
 }
 
 export interface Site {
@@ -40,6 +42,24 @@ export interface SitesResponse {
 export interface DeletedSitesResponse {
   sites: Site[];
   count: number;
+}
+
+// Revision is one browsable version of a site: the live content ("current") or
+// a retained archived snapshot identified by its timestamp.
+export interface Revision {
+  id: string;
+  current: boolean;
+  created_at: string;
+}
+
+// FileNode is a node in a revision's file tree. Directories carry children;
+// files carry a size. Path is relative to the revision root.
+export interface FileNode {
+  name: string;
+  path: string;
+  dir: boolean;
+  size?: number;
+  children?: FileNode[];
 }
 
 export type Capability = "publish" | "unpublish" | "rollback" | "patch" | "purge";
@@ -188,8 +208,29 @@ export const api = {
   deleteSite: (group: string, slug: string) =>
     request<void>(`/api/sites/${sitePath(group, slug)}`, { method: "DELETE" }),
 
-  rollbackSite: (group: string, slug: string) =>
-    request<Site>(`/api/sites/${sitePath(group, slug)}/rollback`, { method: "POST" }),
+  // rollbackSite restores a site. With no revision it restores the most recent
+  // version; with a revision id it promotes that specific revision to live.
+  rollbackSite: (group: string, slug: string, revision?: string) =>
+    request<Site>(`/api/sites/${sitePath(group, slug)}/rollback`, {
+      method: "POST",
+      body: JSON.stringify(revision ? { revision } : {}),
+    }),
+
+  listRevisions: (group: string, slug: string) =>
+    request<{ revisions: Revision[] }>(`/api/sites/${sitePath(group, slug)}/revisions`),
+
+  getRevisionFiles: (group: string, slug: string, rev: string) =>
+    request<FileNode>(
+      `/api/sites/${sitePath(group, slug)}/revisions/${encodeURIComponent(rev)}/files`,
+    ),
+
+  // revisionFileURL / revisionArchiveURL return download links served directly
+  // by the browser (used as href targets), not fetched here.
+  revisionFileURL: (group: string, slug: string, rev: string, path: string) =>
+    `/api/sites/${sitePath(group, slug)}/revisions/${encodeURIComponent(rev)}/file?path=${encodeURIComponent(path)}`,
+
+  revisionArchiveURL: (group: string, slug: string, rev: string) =>
+    `/api/sites/${sitePath(group, slug)}/revisions/${encodeURIComponent(rev)}/archive`,
 
   publishSite,
 
