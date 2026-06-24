@@ -5,9 +5,7 @@ interface Props {
   onCountChange?: (n: number) => void;
 }
 
-function timeUntilPurge(deletedAt: string): string {
-  // The server-side TTL is not exposed to the frontend, so we show elapsed
-  // time since deletion. Admins can see the deleted_at timestamp and act.
+function fmtDeleted(deletedAt: string): string {
   const d = new Date(deletedAt);
   const diffMs = Date.now() - d.getTime();
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -67,50 +65,54 @@ export function TrashView({ onCountChange }: Props) {
       )}
 
       {sites.length > 0 && (
-        <table className="trash-table">
-          <thead>
-            <tr>
-              <th>Site</th>
-              <th>Group</th>
-              <th>Deleted</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sites.map((site) => (
-              <tr key={site.id} className="trash-row">
-                <td>
-                  <span className="trash-title">{site.title || site.slug}</span>
-                  <span className="trash-slug muted">{site.slug}</span>
-                </td>
-                <td className="muted">{site.group || <em>flat</em>}</td>
-                <td className="muted trash-time">
-                  {site.deleted_at ? timeUntilPurge(site.deleted_at) : "—"}
-                </td>
-                <td className="trash-actions">
-                  <button
-                    className="small"
-                    disabled={busy === site.id}
-                    onClick={() => run(site.id, () => api.restoreSite(site.group, site.slug))}
-                  >
-                    Restore
-                  </button>
-                  <button
-                    className="small danger"
-                    disabled={busy === site.id}
-                    onClick={() => {
-                      if (confirm(`Permanently delete ${site.slug}? This cannot be undone.`)) {
-                        run(site.id, () => api.purgeSite(site.group, site.slug));
-                      }
-                    }}
-                  >
-                    Delete permanently
-                  </button>
-                </td>
+        <div className="table-wrap">
+          <table className="sites-table">
+            <thead>
+              <tr>
+                <th className="col-title">Site</th>
+                <th className="col-group">Group</th>
+                <th className="col-date">Deleted</th>
+                <th className="col-actions"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sites.map((site) => (
+                <tr key={site.id}>
+                  <td className="col-title">
+                    <span className="t-title">{site.title || site.slug}</span>
+                    {site.title && <span className="t-desc">{site.slug}</span>}
+                  </td>
+                  <td className="col-group">{site.group || "—"}</td>
+                  <td className="col-date">
+                    {site.deleted_at ? fmtDeleted(site.deleted_at) : "—"}
+                  </td>
+                  <td className="col-actions">
+                    <div className="row-actions">
+                      <button
+                        className="small"
+                        disabled={busy === site.id}
+                        onClick={() => run(site.id, () => api.restoreSite(site.group, site.slug))}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        className="small danger"
+                        disabled={busy === site.id}
+                        onClick={() => {
+                          if (confirm(`Permanently delete ${site.slug}? This cannot be undone.`)) {
+                            run(site.id, () => api.purgeSite(site.group, site.slug));
+                          }
+                        }}
+                      >
+                        Delete permanently
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

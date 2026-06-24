@@ -1105,43 +1105,12 @@ button.ghost {
     margin: 0 0 0.4rem;
 }
 
-.trash-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-}
-
-.trash-table th,
-.trash-table td {
-    text-align: left;
-    padding: 0.55rem 0.75rem;
-    border-bottom: 1px solid var(--border);
-}
-
-.trash-table th {
-    color: var(--muted);
-    font-weight: 600;
-}
-
-.trash-title {
-    display: block;
-    font-weight: 500;
-}
-
-.trash-slug {
-    display: block;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.8rem;
-}
-
-.trash-time {
+.col-actions {
     white-space: nowrap;
-    font-size: 0.85rem;
 }
 
-.trash-actions {
+.row-actions {
     display: flex;
     gap: 0.4rem;
     justify-content: flex-end;
-    white-space: nowrap;
 }
