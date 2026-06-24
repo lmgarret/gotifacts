@@ -155,9 +155,11 @@ func (s *Service) handleRegister(w http.ResponseWriter, r *http.Request) {
 		RedirectURIs:    req.RedirectURIs,
 		TokenAuthMethod: method,
 	}); err != nil {
+		s.log.Error("failed to register OAuth client", "name", req.ClientName, "err", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not register client")
 		return
 	}
+	s.log.Info("OAuth client registered", "client_id", clientID, "name", req.ClientName, "auth_method", method)
 
 	grants := req.GrantTypes
 	if len(grants) == 0 {
@@ -340,6 +342,7 @@ func (s *Service) authorizeSubmit(w http.ResponseWriter, r *http.Request, p *aut
 		return
 	}
 	if r.PostForm.Get("action") != "approve" {
+		s.log.Info("MCP consent denied", "user", p.User, "client_id", ap.ClientID)
 		redirectWithError(w, r, ap.RedirectURI, ap.State, "access_denied", "user denied the request")
 		return
 	}
@@ -365,9 +368,12 @@ func (s *Service) authorizeSubmit(w http.ResponseWriter, r *http.Request, p *aut
 		Grants:              []store.Grant{grant},
 		ExpiresAt:           time.Now().Add(codeTTL),
 	}); err != nil {
+		s.log.Error("failed to persist authorization code", "user", p.User, "client_id", ap.ClientID, "err", err)
 		redirectWithError(w, r, ap.RedirectURI, ap.State, "server_error", "could not persist code")
 		return
 	}
+	s.log.Info("MCP consent granted", "user", p.User, "client_id", ap.ClientID,
+		"target_kind", grant.Kind, "target", grant.Target, "capabilities", keys.JoinCapabilities(grant.Permissions))
 
 	u, _ := url.Parse(ap.RedirectURI)
 	qq := u.Query()
@@ -480,6 +486,7 @@ func (s *Service) grantAuthorizationCode(w http.ResponseWriter, r *http.Request)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
 		return
 	}
+	s.log.Info("MCP connection established", "user", ac.User, "client_id", clientID, "conn", connID)
 	s.issueTokens(w, r, connID, clientID, ac.User, ac.Grants)
 }
 

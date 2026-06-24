@@ -14,7 +14,9 @@ import (
 	"github.com/lmgarret/gotifacts/internal/api"
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/config"
+	"github.com/lmgarret/gotifacts/internal/httplog"
 	"github.com/lmgarret/gotifacts/internal/ingest"
+	"github.com/lmgarret/gotifacts/internal/logging"
 	"github.com/lmgarret/gotifacts/internal/portal"
 	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
@@ -22,12 +24,15 @@ import (
 )
 
 func runServe(ctx context.Context, _ []string) error {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+	// Build the configured logger as early as possible and make it the process
+	// default so every package (store, auth, …) logs through it consistently.
+	log := logging.New(os.Stdout, cfg.LogLevel, cfg.LogFormat)
+	slog.SetDefault(log)
+
 	if errs := cfg.Validate(); len(errs) > 0 {
 		for _, e := range errs {
 			log.Error("invalid configuration", "err", e)
@@ -55,8 +60,11 @@ func runServe(ctx context.Context, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("init apex server: %w", err)
 	}
-	apex := apexSrv.Handler()
-	sites := portal.NewSiteServer(cfg)
+	// Log every request on completion. Management/ingest traffic on the apex host
+	// logs at info (these are the actions operators care about); high-volume
+	// static asset serving on site hosts logs at debug to stay out of the way.
+	apex := httplog.Middleware(log.With("plane", "apex"), slog.LevelInfo)(apexSrv.Handler())
+	sites := httplog.Middleware(log.With("plane", "site"), slog.LevelDebug)(portal.NewSiteServer(cfg))
 
 	pub := ingest.New(cfg, st)
 	go runPurgeLoop(ctx, pub, log)

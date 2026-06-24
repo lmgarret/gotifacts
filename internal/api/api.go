@@ -37,7 +37,7 @@ func New(cfg *config.Config, st *store.Store, spa http.Handler, log *slog.Logger
 		authn: auth.New(cfg, st),
 		pub:   pub,
 		spa:   spa,
-		log:   log,
+		log:   log.With("component", "api"),
 	}
 	if cfg.MCPEnabled {
 		m, err := mcpserver.New(cfg, st, pub, log)

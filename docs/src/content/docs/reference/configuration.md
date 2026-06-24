@@ -28,6 +28,24 @@ the repo.
 | `GOTIFACTS_DATA_DIR` | `/data` | Writable volume root: SQLite DB + all site files. |
 | `GOTIFACTS_DB_PATH` | `${DATA_DIR}/gotifacts.db` | SQLite database path. |
 
+## Logging
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `GOTIFACTS_LOG_LEVEL` | `info` | Minimum level emitted: `debug`, `info`, `warn`, or `error`. |
+| `GOTIFACTS_LOG_FORMAT` | `text` | Log encoding: `text` (human-readable) or `json` (structured). |
+
+Logs are written to **stdout**, so they surface in `docker logs` and Portainer
+without extra configuration. The `text` format is easiest to scan in Portainer's
+log view; switch to `json` when feeding a log shipper.
+
+Each action — site publishes, deletes, rollbacks, metadata patches, API-key
+creation/revocation, and MCP consent/connection changes — is logged at **info**,
+alongside a one-line access record per request on the management/ingest plane.
+Raise verbosity to **debug** to also see authentication decisions (why a
+forward-auth or API-key request was accepted or rejected) and the high-volume
+static-asset request lines from served sites.
+
 ## Authentication (management plane)
 
 | Variable | Default | Notes |
