@@ -6,7 +6,7 @@ sidebar:
 ---
 
 gotifacts ships a distributable **Claude skill** (`gotifacts`) that covers the
-full site lifecycle: publish, unpublish, update metadata, and rollback. The
+full site lifecycle: publish, unpublish, update metadata, rollback, restore, and purge. The
 **golden path** is the [MCP connector](/gotifacts/guides/connect-claude-mcp/) —
 no env vars needed, Claude authenticates via OAuth. For Claude Code, CI, or any
 environment without a connector, it falls back to `GOTIFACTS_URL` + `GOTIFACTS_API_KEY`.
@@ -39,7 +39,7 @@ export GOTIFACTS_API_KEY=gtf_…   # scoped key for the claude group
 ```
 
 Mint that key as in [create & scope API keys](/gotifacts/guides/create-api-keys/),
-e.g. `--grant "claude:publish,unpublish,patch,rollback"`.
+e.g. `--grant "claude:publish,unpublish,patch,rollback,purge"`.
 
 ## Use
 
@@ -53,7 +53,10 @@ consent, then call the appropriate MCP tool (or `curl` command). Operations:
 | Unpublish / take down | `unpublish_site` / DELETE |
 | Update title or tags | `update_site` / PATCH |
 | Roll back to previous | `rollback_site` / POST rollback |
+| Restore from quarantine | `restore_site` / POST restore |
+| Permanently delete | `purge_site` / POST purge |
 
 Re-publishing the same `group`/`slug` replaces the existing site. Unpublishing
 keeps files in quarantine for the server's configured TTL (default 30 days)
-before permanent removal — re-publishing within that window restores the site.
+before permanent removal. `restore_site` brings the site back online within the
+grace period; `purge_site` destroys it immediately and is irreversible.
