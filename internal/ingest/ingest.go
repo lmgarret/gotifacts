@@ -194,6 +194,97 @@ func (p *Publisher) pruneVersions(verRoot string) error {
 	return nil
 }
 
+// Unpublish soft-deletes a site: it marks the registry row with deleted_at and
+// moves the live files to the quarantine directory so the site is immediately
+// taken offline. The files remain in quarantine until PurgeDeleted removes them
+// after the configured TTL.
+func (p *Publisher) Unpublish(ctx context.Context, group, slug string) error {
+	sp, err := router.NewSitePath(group, slug)
+	if err != nil {
+		return fmt.Errorf("invalid site path: %w", err)
+	}
+	if err := p.store.SoftDeleteSite(ctx, group, slug); err != nil {
+		return err
+	}
+	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+	if _, statErr := os.Stat(live); statErr == nil {
+		dst := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create quarantine dir: %w", err)
+		}
+		_ = os.RemoveAll(dst) // replace any prior quarantine entry for this slug
+		if err := os.Rename(live, dst); err != nil {
+			return fmt.Errorf("quarantine site: %w", err)
+		}
+	}
+	return nil
+}
+
+// Restore brings a soft-deleted site back online: it clears deleted_at in the
+// registry and moves the quarantined files back to the live directory. Returns
+// store.ErrNotFound if the site is not currently soft-deleted.
+func (p *Publisher) Restore(ctx context.Context, group, slug string) error {
+	sp, err := router.NewSitePath(group, slug)
+	if err != nil {
+		return fmt.Errorf("invalid site path: %w", err)
+	}
+	if err := p.store.RestoreSite(ctx, group, slug); err != nil {
+		return err
+	}
+	quarantine := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+	if _, statErr := os.Stat(quarantine); statErr == nil {
+		live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+		if err := os.MkdirAll(filepath.Dir(live), 0o755); err != nil {
+			return fmt.Errorf("restore: create site dir: %w", err)
+		}
+		_ = os.RemoveAll(live) // clear any orphaned live dir
+		if err := os.Rename(quarantine, live); err != nil {
+			return fmt.Errorf("restore: move from quarantine: %w", err)
+		}
+	}
+	return nil
+}
+
+// Purge immediately hard-deletes a single soft-deleted (quarantined) site,
+// bypassing the TTL. Returns store.ErrNotFound if the site is not currently
+// soft-deleted, preventing accidental destruction of live sites.
+func (p *Publisher) Purge(ctx context.Context, group, slug string) error {
+	sp, err := router.NewSitePath(group, slug)
+	if err != nil {
+		return fmt.Errorf("invalid site path: %w", err)
+	}
+	if err := p.store.PurgeDeletedSite(ctx, group, slug); err != nil {
+		return err
+	}
+	quarantine := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+	_ = os.RemoveAll(quarantine)
+	return nil
+}
+
+// PurgeDeleted hard-deletes sites whose deleted_at has exceeded the configured
+// TTL: it removes the quarantine directory and the database row. Returns the
+// number of sites purged.
+func (p *Publisher) PurgeDeleted(ctx context.Context) (int, error) {
+	cutoff := time.Now().Add(-p.cfg.DeletedSiteTTL)
+	sites, err := p.store.ListDeletedBefore(ctx, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	for _, site := range sites {
+		sp, err := router.NewSitePath(site.Group, site.Slug)
+		if err != nil {
+			continue
+		}
+		dst := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+		_ = os.RemoveAll(dst)
+		if err := p.store.DeleteSite(ctx, site.Group, site.Slug); err == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // Rollback restores the most recent archived version of a site, swapping the
 // current live content into the version history.
 func (p *Publisher) Rollback(ctx context.Context, sp router.SitePath) error {

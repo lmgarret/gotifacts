@@ -60,6 +60,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/sites/{rest...}", s.requireAdmin(s.handlePatchSite))
 	mux.HandleFunc("DELETE /api/sites/{rest...}", s.requireAdmin(s.handleDeleteSite))
 	mux.HandleFunc("POST /api/sites/{rest...}", s.requireAdmin(s.handleRollbackSite))
+	// Deleted-sites sub-resource (admin-only): list, restore, hard-delete.
+	mux.HandleFunc("GET /api/sites/deleted", s.requireAdmin(s.handleListDeletedSites))
+	mux.HandleFunc("POST /api/sites/deleted/{rest...}", s.requireAdmin(s.handleRestoreSite))
+	mux.HandleFunc("DELETE /api/sites/deleted/{rest...}", s.requireAdmin(s.handlePurgeSite))
 	mux.HandleFunc("GET /api/keys", s.requireAdmin(s.handleListKeys))
 	mux.HandleFunc("POST /api/keys", s.requireAdmin(s.handleCreateKey))
 	mux.HandleFunc("DELETE /api/keys/{id}", s.requireAdmin(s.handleDeleteKey))
@@ -67,7 +71,7 @@ func (s *Server) Handler() http.Handler {
 	// Ingest plane (API-key). Each handler authorizes the specific capability
 	// against the request's group; admin keys pass unconditionally.
 	mux.HandleFunc("POST /ingest/sites", s.requireKey(s.handleIngestPublish))
-	mux.HandleFunc("POST /ingest/sites/{rest...}", s.requireKey(s.handleIngestRollback))
+	mux.HandleFunc("POST /ingest/sites/{rest...}", s.requireKey(s.handleIngestAction))
 	mux.HandleFunc("PATCH /ingest/sites/{rest...}", s.requireKey(s.handleIngestPatch))
 	mux.HandleFunc("DELETE /ingest/sites/{rest...}", s.requireKey(s.handleIngestDelete))
 

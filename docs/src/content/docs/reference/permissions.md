@@ -14,9 +14,12 @@ capabilities to a target.
 | Capability | Allows |
 | --- | --- |
 | `publish` | create/replace sites — `POST /ingest/sites` |
-| `unpublish` | delete sites — `DELETE /ingest/sites/…` |
+| `unpublish` | soft-delete sites — `DELETE /ingest/sites/…` (files kept in quarantine) |
 | `rollback` | restore a site's previous version — `POST /ingest/sites/…/rollback` |
 | `patch` | edit site metadata — `PATCH /ingest/sites/…` |
+| `purge` | permanently destroy a quarantined site — `POST /ingest/sites/…/purge` |
+
+Unpublish and purge are intentionally separate: `unpublish` takes a site offline (recoverable within the TTL), while `purge` is irreversible. Automation that only tears down previews should hold `unpublish`; automation that also needs to destroy data permanently should hold both.
 
 ## Roles
 

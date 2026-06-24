@@ -24,6 +24,7 @@ const (
 	DefaultMaxExtractBytes   = 256 << 20 // 256 MiB
 	DefaultMaxExtractEntries = 10000
 	DefaultVersioningKeep    = 5
+	DefaultDeletedSiteTTL    = 30 * 24 * time.Hour
 	DefaultMCPGroup          = "claude"
 	DefaultMCPAccessTokenTTL = time.Hour
 	DefaultMCPRefreshTTL     = 30 * 24 * time.Hour
@@ -55,6 +56,10 @@ type Config struct {
 	VersioningEnabled bool
 	// VersioningKeep is the number of historical versions retained per site.
 	VersioningKeep int
+	// DeletedSiteTTL is how long soft-deleted site files are kept in the
+	// quarantine directory before the background purge removes them permanently.
+	// Set to 0 to purge immediately on the next purge cycle.
+	DeletedSiteTTL time.Duration
 	// MCPEnabled exposes the OAuth-protected MCP server for publishing. Off by default.
 	MCPEnabled bool
 	// MCPAllowedUsers gates the OAuth consent step; empty means fall back to AdminUsers.
@@ -97,6 +102,10 @@ func (c *Config) TmpDir() string { return c.DataDir + "/.tmp" }
 
 // VersionsDir returns the directory holding retained site versions.
 func (c *Config) VersionsDir() string { return c.DataDir + "/.versions" }
+
+// DeletedDir returns the quarantine directory for soft-deleted site files.
+// Files remain here until the background purge removes them after DeletedSiteTTL.
+func (c *Config) DeletedDir() string { return c.DataDir + "/.deleted" }
 
 // IsAdminUser reports whether user is in the admin allowlist (case-insensitive).
 func (c *Config) IsAdminUser(user string) bool {
@@ -156,6 +165,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if c.VersioningEnabled, err = envBool("GOTIFACTS_VERSIONING_ENABLED", false); err != nil {
+		return nil, err
+	}
+	if c.DeletedSiteTTL, err = envDuration("GOTIFACTS_DELETED_SITE_TTL", DefaultDeletedSiteTTL); err != nil {
 		return nil, err
 	}
 	if c.MCPEnabled, err = envBool("GOTIFACTS_MCP_ENABLED", false); err != nil {

@@ -140,6 +140,55 @@ func (s *Server) rollbackSite(w http.ResponseWriter, r *http.Request, sp router.
 	writeJSON(w, http.StatusOK, site)
 }
 
+func (s *Server) handleListDeletedSites(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+	sites, err := s.store.ListDeletedSites(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list deleted sites")
+		return
+	}
+	if sites == nil {
+		sites = []store.Site{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sites": sites, "count": len(sites)})
+}
+
+func (s *Server) handleRestoreSite(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+	sp, err := parseSitePath(r.PathValue("rest"), "")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid site path")
+		return
+	}
+	if err := s.pub.Restore(r.Context(), sp.Group, sp.Slug); errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "site not found or not deleted")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to restore site")
+		return
+	}
+	site, err := s.store.GetSite(r.Context(), sp.Group, sp.Slug)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "restored but registry read failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, site)
+}
+
+func (s *Server) handlePurgeSite(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+	sp, err := parseSitePath(r.PathValue("rest"), "")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid site path")
+		return
+	}
+	if err := s.pub.Purge(r.Context(), sp.Group, sp.Slug); errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "site not found or not deleted")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to purge site")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // publish performs a multipart publish shared by admin upload and ingest.
 func (s *Server) publish(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	meta, kind, content, cleanup, err := parseMultipartPublish(w, r, s.cfg.MaxUploadBytes)
@@ -168,11 +217,8 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	writeJSON(w, http.StatusOK, res)
 }
 
-// deleteSite removes registry row and on-disk content for a site.
+// deleteSite soft-deletes a site via the publish pipeline (quarantines files,
+// marks deleted_at in the registry).
 func (s *Server) deleteSite(r *http.Request, group, slug string) error {
-	if err := s.store.DeleteSite(r.Context(), group, slug); err != nil {
-		return err
-	}
-	s.removeSiteDir(group, slug)
-	return nil
+	return s.pub.Unpublish(r.Context(), group, slug)
 }

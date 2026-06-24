@@ -8,10 +8,11 @@ sidebar:
 For the consumer Claude apps (claude.ai mobile/web), the
 [skill](/gotifacts/guides/publish-with-claude-skill/) can't inject environment
 variables. Instead, expose gotifacts' **MCP connector**: an OAuth 2.1-protected
-[Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` with a
-single `publish_site` tool. Claude's "custom connector" UI authenticates remote
-MCP servers exclusively via OAuth, so this is the only path that works on
-mobile/web.
+[Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` that
+exposes the full site lifecycle as tools (`publish_site`, `update_site`,
+`unpublish_site`, `rollback_site`, `restore_site`, `purge_site`). Claude's
+"custom connector" UI authenticates remote MCP servers exclusively via OAuth, so
+this is the only path that works on mobile/web.
 
 ## 1. Enable it on the server
 
@@ -45,7 +46,7 @@ In Claude → **Settings → Connectors → Add custom connector**, enter
 
 - a **target** — a group subtree or a single site, prefilled from
   `GOTIFACTS_MCP_GROUP` (default `claude`), and
-- the **capabilities** to allow (`publish`, `patch`, `unpublish`, `rollback`).
+- the **capabilities** to allow (`publish`, `patch`, `unpublish`, `rollback`, `purge`).
 
 The connector can never act outside what you granted. Then ask Claude to publish
 a page.

@@ -8,7 +8,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/lmgarret/gotifacts/internal/ingest"
@@ -138,13 +137,4 @@ func spoolToTemp(part *multipart.Part) (*os.File, error) {
 // normalizeGroup trims and lowercases a group string for comparison.
 func normalizeGroup(group string) string {
 	return strings.Trim(strings.ToLower(strings.TrimSpace(group)), "/")
-}
-
-// removeSiteDir deletes a site's on-disk directory (best effort).
-func (s *Server) removeSiteDir(group, slug string) {
-	dir := slug
-	if group != "" {
-		dir = group + "/" + slug
-	}
-	_ = os.RemoveAll(filepath.Join(s.cfg.SitesDir(), filepath.FromSlash(dir)))
 }

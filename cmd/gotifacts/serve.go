@@ -14,6 +14,7 @@ import (
 	"github.com/lmgarret/gotifacts/internal/api"
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/config"
+	"github.com/lmgarret/gotifacts/internal/ingest"
 	"github.com/lmgarret/gotifacts/internal/portal"
 	"github.com/lmgarret/gotifacts/internal/router"
 	"github.com/lmgarret/gotifacts/internal/store"
@@ -57,6 +58,9 @@ func runServe(ctx context.Context, _ []string) error {
 	apex := apexSrv.Handler()
 	sites := portal.NewSiteServer(cfg)
 
+	pub := ingest.New(cfg, st)
+	go runPurgeLoop(ctx, pub, log)
+
 	dispatch := router.NewDispatch(cfg, apex, sites)
 	authn := auth.New(cfg, st)
 	handler := authn.StripUntrustedIdentity(dispatch)
@@ -91,4 +95,28 @@ func runServe(ctx context.Context, _ []string) error {
 func ctxSignal() context.Context {
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	return ctx
+}
+
+// runPurgeLoop runs the soft-deleted site purge on startup and then every hour
+// until ctx is cancelled.
+func runPurgeLoop(ctx context.Context, pub *ingest.Publisher, log *slog.Logger) {
+	purge := func() {
+		n, err := pub.PurgeDeleted(ctx)
+		if err != nil {
+			log.Error("purge deleted sites", "err", err)
+		} else if n > 0 {
+			log.Info("purged deleted sites", "count", n)
+		}
+	}
+	purge()
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			purge()
+		}
+	}
 }

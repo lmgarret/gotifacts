@@ -3,9 +3,10 @@ import type { Capability, Grant, GrantKind } from "./api";
 // CAP_INFO describes each capability for the grant editor.
 export const CAP_INFO: Record<Capability, { desc: string }> = {
   publish: { desc: "Create or replace sites (deploy)." },
-  unpublish: { desc: "Delete sites." },
+  unpublish: { desc: "Soft-delete sites — takes them offline into quarantine." },
   rollback: { desc: "Restore a site’s previous version." },
   patch: { desc: "Edit site metadata — title, tags, visibility." },
+  purge: { desc: "Permanently destroy a quarantined (unpublished) site." },
 };
 
 // ScopeType is the UI-level grant scope. "global" maps to a group grant with an
