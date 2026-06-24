@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Me, type Site, type TreeNode } from "../api";
 import { GroupSection } from "./GroupSection";
+import { SitesTable } from "./SitesTable";
 import { SiteDetail } from "./SiteDetail";
 import { SiteCreateModal } from "./SiteCreateModal";
 
@@ -8,23 +9,38 @@ interface Props {
   me: Me;
 }
 
+type Layout = "card" | "table";
+
+const LAYOUT_KEY = "gotifacts.layout";
+
+function initialLayout(): Layout {
+  return localStorage.getItem(LAYOUT_KEY) === "table" ? "table" : "card";
+}
+
 export function Portal({ me }: Props) {
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [count, setCount] = useState(0);
   const [allTags, setAllTags] = useState<string[]>([]);
+  const [allGroups, setAllGroups] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
+  const [group, setGroup] = useState("");
   const [sort, setSort] = useState("date");
   const [showHidden, setShowHidden] = useState(false);
   const [selected, setSelected] = useState<Site | null>(null);
   const [creating, setCreating] = useState(false);
+  const [layout, setLayout] = useState<Layout>(initialLayout);
+
+  useEffect(() => {
+    localStorage.setItem(LAYOUT_KEY, layout);
+  }, [layout]);
 
   const load = useCallback(() => {
     api
-      .listSites({ q, tag, sort, hidden: me.is_admin && showHidden })
+      .listSites({ q, tag, group, sort, hidden: me.is_admin && showHidden })
       .then((res) => {
         setTree(res.tree);
         setSites(res.sites ?? []);
@@ -32,10 +48,17 @@ export function Portal({ me }: Props) {
         const tags = new Set<string>();
         (res.sites ?? []).forEach((s) => s.tags?.forEach((t) => tags.add(t)));
         setAllTags([...tags].sort());
+        // Capture the full group list only when unfiltered, so selecting a
+        // group does not collapse the dropdown to that subtree.
+        if (!group) {
+          const gs = new Set<string>();
+          (res.sites ?? []).forEach((s) => s.group && gs.add(s.group));
+          setAllGroups([...gs].sort());
+        }
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
-  }, [q, tag, sort, showHidden, me.is_admin]);
+  }, [q, tag, group, sort, showHidden, me.is_admin]);
 
   const groups = useMemo(
     () => [...new Set(sites.map((s) => s.group).filter(Boolean))].sort(),
@@ -98,11 +121,27 @@ export function Portal({ me }: Props) {
             </option>
           ))}
         </select>
-        <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort">
-          <option value="date">Newest</option>
-          <option value="title">Title</option>
-          <option value="slug">Slug</option>
-        </select>
+        {allGroups.length > 0 && (
+          <select
+            value={group}
+            onChange={(e) => setGroup(e.target.value)}
+            aria-label="Filter by group"
+          >
+            <option value="">All groups</option>
+            {allGroups.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </select>
+        )}
+        {layout === "card" && (
+          <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort">
+            <option value="date">Newest</option>
+            <option value="title">Title</option>
+            <option value="slug">Slug</option>
+          </select>
+        )}
         {me.is_admin && (
           <label className="checkbox">
             <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
@@ -110,6 +149,24 @@ export function Portal({ me }: Props) {
           </label>
         )}
         <span className="count">{count} site{count === 1 ? "" : "s"}</span>
+        <div className="layout-toggle" role="group" aria-label="Layout">
+          <button
+            className={layout === "card" ? "active" : ""}
+            onClick={() => setLayout("card")}
+            aria-pressed={layout === "card"}
+            title="Card view"
+          >
+            ▦
+          </button>
+          <button
+            className={layout === "table" ? "active" : ""}
+            onClick={() => setLayout("table")}
+            aria-pressed={layout === "table"}
+            title="Table view"
+          >
+            ☰
+          </button>
+        </div>
         {me.is_admin && (
           <button className="add-site" onClick={() => setCreating(true)}>
             + Add site
@@ -120,15 +177,14 @@ export function Portal({ me }: Props) {
       {error && <p className="error">{error}</p>}
       {isEmpty && !error && <p className="muted empty">No sites published yet.</p>}
 
-      {tree && (
+      {tree && layout === "card" && (
         <div className="tree">
-          <GroupSection
-            node={tree}
-            base={me.base_domain}
-            depth={0}
-            onSelect={setSelected}
-          />
+          <GroupSection node={tree} base={me.base_domain} depth={0} onSelect={setSelected} />
         </div>
+      )}
+
+      {layout === "table" && sites.length > 0 && (
+        <SitesTable sites={sites} base={me.base_domain} onSelect={setSelected} />
       )}
 
       {selected && (
