@@ -45,7 +45,7 @@ In Claude → **Settings → Connectors → Add custom connector**, enter
 
 - a **target** — a group subtree or a single site, prefilled from
   `GOTIFACTS_MCP_GROUP` (default `claude`), and
-- the **capabilities** to allow (`publish`, `patch`, `unpublish`, `rollback`).
+- the **capabilities** to allow (`publish`, `patch`, `unpublish`, `rollback`, `purge`).
 
 The connector can never act outside what you granted. Then ask Claude to publish
 a page.

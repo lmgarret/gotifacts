@@ -245,3 +245,74 @@ func TestRepublishAfterUnpublish(t *testing.T) {
 		t.Fatalf("quarantine should persist until purged: %v", err)
 	}
 }
+
+func TestRestoreAfterUnpublish(t *testing.T) {
+	p, cfg, _ := setupFull(t, 0, false)
+	ctx := context.Background()
+
+	if _, _, err := p.Publish(ctx, Meta{Group: "claude", Slug: "site"}, KindIndex, strings.NewReader("v1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Unpublish(ctx, "claude", "site"); err != nil {
+		t.Fatal(err)
+	}
+	liveFile := filepath.Join(cfg.SitesDir(), "claude", "site", "index.html")
+	if _, err := os.Stat(liveFile); !os.IsNotExist(err) {
+		t.Fatal("live file should be absent after unpublish")
+	}
+
+	if err := p.Restore(ctx, "claude", "site"); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if _, err := os.Stat(liveFile); err != nil {
+		t.Fatalf("live file should be restored: %v", err)
+	}
+	quarantine := filepath.Join(cfg.DeletedDir(), "claude", "site")
+	if _, err := os.Stat(quarantine); !os.IsNotExist(err) {
+		t.Fatal("quarantine dir should be gone after restore")
+	}
+}
+
+func TestRestoreNotFound(t *testing.T) {
+	p, _, _ := setupFull(t, 0, false)
+	if err := p.Restore(context.Background(), "claude", "nonexistent"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestPurgeOne(t *testing.T) {
+	p, cfg, _ := setupFull(t, time.Hour, false)
+	ctx := context.Background()
+
+	if _, _, err := p.Publish(ctx, Meta{Group: "claude", Slug: "temp"}, KindIndex, strings.NewReader("<h1></h1>")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Unpublish(ctx, "claude", "temp"); err != nil {
+		t.Fatal(err)
+	}
+	quarantine := filepath.Join(cfg.DeletedDir(), "claude", "temp")
+	if _, err := os.Stat(quarantine); err != nil {
+		t.Fatalf("quarantine missing before purge: %v", err)
+	}
+
+	if err := p.Purge(ctx, "claude", "temp"); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if _, err := os.Stat(quarantine); !os.IsNotExist(err) {
+		t.Fatal("quarantine should be gone after Purge")
+	}
+	if err := p.Purge(ctx, "claude", "temp"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("double-purge: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestPurgeLiveSiteRejected(t *testing.T) {
+	p, _, _ := setupFull(t, 0, false)
+	ctx := context.Background()
+	if _, _, err := p.Publish(ctx, Meta{Slug: "live"}, KindIndex, strings.NewReader("<h1></h1>")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Purge(ctx, "", "live"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("purging a live site should return ErrNotFound, got %v", err)
+	}
+}

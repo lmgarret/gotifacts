@@ -35,6 +35,8 @@ const (
 	CapRollback Capability = "rollback"
 	// CapPatch allows editing site metadata (PATCH /ingest/sites).
 	CapPatch Capability = "patch"
+	// CapPurge allows permanently deleting a soft-deleted (quarantined) site.
+	CapPurge Capability = "purge"
 )
 
 // ErrInvalidCapability is returned when a capability string is not recognized.
@@ -52,7 +54,7 @@ func ParseCapability(s string) (Capability, error) {
 // Valid reports whether c is a recognized capability.
 func (c Capability) Valid() bool {
 	switch c {
-	case CapPublish, CapUnpublish, CapRollback, CapPatch:
+	case CapPublish, CapUnpublish, CapRollback, CapPatch, CapPurge:
 		return true
 	default:
 		return false

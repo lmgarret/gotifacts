@@ -132,6 +132,68 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/sites/deleted:
+    get:
+      tags: [Management]
+      summary: List quarantined (soft-deleted) sites (admin)
+      description: |
+        Returns all sites that have been soft-deleted but not yet permanently
+        removed. Only admins may call this endpoint.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: Quarantined sites with their `deleted_at` timestamps.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sites:
+                    type: array
+                    items: { $ref: "#/components/schemas/Site" }
+                  count: { type: integer }
+                required: [sites, count]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/sites/deleted/{path}:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    post:
+      tags: [Management]
+      summary: Restore a quarantined site (admin)
+      description: |
+        Clears `deleted_at` and moves the quarantined files back to the live
+        directory, bringing the site online immediately. Returns `404` if the
+        site does not exist or is not currently soft-deleted.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The restored site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Management]
+      summary: Permanently delete a quarantined site (admin)
+      description: |
+        Immediately and permanently destroys the site's files and removes its
+        database row, bypassing the retention TTL. Only succeeds if the site has
+        been soft-deleted — returns `404` for live sites. This action is
+        irreversible.
+      security:
+        - forwardAuth: []
+      responses:
+        "204": { description: Purged. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/sites/{path}/rollback:
     parameters:
       - $ref: "#/components/parameters/SitePath"
@@ -310,6 +372,24 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /ingest/sites/{path}/purge:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    post:
+      tags: [Ingest]
+      summary: Permanently delete a quarantined site
+      description: |
+        Requires the `purge` capability on the target group. Immediately and
+        permanently destroys the site's files and removes its database row,
+        bypassing the retention TTL. Only succeeds if the site has been
+        soft-deleted (unpublished) first — calling purge on a live site returns
+        `404`. This action is irreversible.
+      responses:
+        "204": { description: Purged. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -446,7 +526,7 @@ components:
 
     Capability:
       type: string
-      enum: [publish, unpublish, rollback, patch]
+      enum: [publish, unpublish, rollback, patch, purge]
 
     Grant:
       type: object

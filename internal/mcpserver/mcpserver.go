@@ -86,6 +86,14 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 		Name:        "rollback_site",
 		Description: "Restore the most recent archived version of a site, replacing the current live content. Requires versioning to be enabled on the gotifacts instance.",
 	}, s.rollbackSite)
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{
+		Name:        "restore_site",
+		Description: "Bring a soft-deleted (unpublished) site back online by moving its quarantined files back to live and clearing its deleted status. Use this to undo an accidental unpublish within the grace period.",
+	}, s.restoreSite)
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{
+		Name:        "purge_site",
+		Description: "Permanently and immediately delete a soft-deleted (quarantined) site, bypassing the retention TTL. This is irreversible — the site's files are destroyed. Only use when you are certain the site should be gone.",
+	}, s.purgeSite)
 
 	streamHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
 	// No required scope at the middleware: a valid, unexpired token is admitted
@@ -273,6 +281,68 @@ func (s *Service) rollbackSite(ctx context.Context, req *mcpsdk.CallToolRequest,
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been rolled back to the previous version.", in.Slug, group)}},
 	}, out, nil
+}
+
+// restoreInput identifies the soft-deleted site to restore.
+type restoreInput struct {
+	Slug  string `json:"slug"`
+	Group string `json:"group,omitempty"`
+}
+
+// restoreSite is the MCP tool handler for restoring a soft-deleted site.
+func (s *Service) restoreSite(ctx context.Context, req *mcpsdk.CallToolRequest, in restoreInput) (*mcpsdk.CallToolResult, struct{}, error) {
+	p := principalFromRequest(req)
+	if p == nil {
+		return errorResult("authentication required"), struct{}{}, nil
+	}
+	group := strings.TrimSpace(in.Group)
+	if group == "" {
+		group = s.cfg.MCPGroup
+	}
+	if strings.TrimSpace(in.Slug) == "" {
+		return errorResult("slug must not be empty"), struct{}{}, nil
+	}
+	if !p.Can(keys.CapPublish, group, in.Slug) {
+		return errorResult(fmt.Sprintf("this connection is not permitted to restore %q in group %q", in.Slug, group)), struct{}{}, nil
+	}
+	if err := s.pub.Restore(ctx, group, in.Slug); err != nil {
+		return errorResult("restore failed: " + err.Error()), struct{}{}, nil
+	}
+	s.log.Info("mcp restore", "user", p.User, "group", group, "slug", in.Slug)
+	return &mcpsdk.CallToolResult{
+		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been restored.", in.Slug, group)}},
+	}, struct{}{}, nil
+}
+
+// purgeInput identifies the soft-deleted site to permanently destroy.
+type purgeInput struct {
+	Slug  string `json:"slug"`
+	Group string `json:"group,omitempty"`
+}
+
+// purgeSite is the MCP tool handler for permanently deleting a quarantined site.
+func (s *Service) purgeSite(ctx context.Context, req *mcpsdk.CallToolRequest, in purgeInput) (*mcpsdk.CallToolResult, struct{}, error) {
+	p := principalFromRequest(req)
+	if p == nil {
+		return errorResult("authentication required"), struct{}{}, nil
+	}
+	group := strings.TrimSpace(in.Group)
+	if group == "" {
+		group = s.cfg.MCPGroup
+	}
+	if strings.TrimSpace(in.Slug) == "" {
+		return errorResult("slug must not be empty"), struct{}{}, nil
+	}
+	if !p.Can(keys.CapPurge, group, in.Slug) {
+		return errorResult(fmt.Sprintf("this connection is not permitted to purge %q in group %q", in.Slug, group)), struct{}{}, nil
+	}
+	if err := s.pub.Purge(ctx, group, in.Slug); err != nil {
+		return errorResult("purge failed: " + err.Error()), struct{}{}, nil
+	}
+	s.log.Info("mcp purge", "user", p.User, "group", group, "slug", in.Slug)
+	return &mcpsdk.CallToolResult{
+		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been permanently deleted.", in.Slug, group)}},
+	}, struct{}{}, nil
 }
 
 // principalFromRequest extracts the *auth.Principal that verifyToken stashed in

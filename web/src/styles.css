@@ -1073,3 +1073,75 @@ button.ghost {
 .site-reveal a {
     word-break: break-all;
 }
+
+/* Nav badge (e.g. Trash count) */
+.nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.1rem;
+    height: 1.1rem;
+    padding: 0 0.3rem;
+    margin-left: 0.35rem;
+    background: var(--danger);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* Trash view */
+.trash {
+    max-width: 60rem;
+}
+
+.trash-head {
+    margin-bottom: 1.5rem;
+}
+
+.trash-head h2 {
+    margin: 0 0 0.4rem;
+}
+
+.trash-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.trash-table th,
+.trash-table td {
+    text-align: left;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.trash-table th {
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.trash-title {
+    display: block;
+    font-weight: 500;
+}
+
+.trash-slug {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8rem;
+}
+
+.trash-time {
+    white-space: nowrap;
+    font-size: 0.85rem;
+}
+
+.trash-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+    white-space: nowrap;
+}

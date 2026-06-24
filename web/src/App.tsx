@@ -3,10 +3,11 @@ import { api, type Me } from "./api";
 import { Portal } from "./components/Portal";
 import { KeysView } from "./components/KeysView";
 import { ConnectionsView } from "./components/ConnectionsView";
+import { TrashView } from "./components/TrashView";
 import logoLight from "./assets/logo-light.svg";
 import logoDark from "./assets/logo-dark.svg";
 
-type View = "portal" | "keys" | "connections";
+type View = "portal" | "keys" | "connections" | "trash";
 
 // Light/dark wordmark logos, matching the docs site. CSS swaps which one is
 // shown based on the active color scheme.
@@ -23,6 +24,7 @@ export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("portal");
+  const [trashCount, setTrashCount] = useState(0);
 
   useEffect(() => {
     api
@@ -74,6 +76,14 @@ export function App() {
               Connections
             </button>
           )}
+          {me.is_admin && (
+            <button
+              className={view === "trash" ? "active" : ""}
+              onClick={() => setView("trash")}
+            >
+              Trash{trashCount > 0 && <span className="nav-badge">{trashCount}</span>}
+            </button>
+          )}
         </nav>
         <div className="who">
           {me.user}
@@ -84,6 +94,7 @@ export function App() {
         {view === "portal" && <Portal me={me} />}
         {view === "keys" && me.is_admin && <KeysView />}
         {view === "connections" && me.is_admin && me.mcp_enabled && <ConnectionsView />}
+        {view === "trash" && me.is_admin && <TrashView onCountChange={setTrashCount} />}
       </main>
     </div>
   );

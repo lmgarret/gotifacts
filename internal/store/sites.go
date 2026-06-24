@@ -165,6 +165,60 @@ func (s *Store) DeleteSite(ctx context.Context, group, slug string) error {
 	return nil
 }
 
+// ListDeletedSites returns all soft-deleted sites ordered by deleted_at desc.
+// Used by the admin trash view.
+func (s *Store) ListDeletedSites(ctx context.Context) ([]Site, error) {
+	rows, err := s.db.QueryContext(ctx, `
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at
+        FROM sites WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Site
+	for rows.Next() {
+		site, err := scanSite(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *site)
+	}
+	return out, rows.Err()
+}
+
+// RestoreSite clears deleted_at on a soft-deleted site, making it visible again.
+// Returns ErrNotFound if the site does not exist or is not currently soft-deleted.
+func (s *Store) RestoreSite(ctx context.Context, group, slug string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sites SET deleted_at=NULL, updated_at=? WHERE group_path=? AND slug=? AND deleted_at IS NOT NULL`,
+		now(), group, slug)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// PurgeDeletedSite hard-deletes a soft-deleted site. Returns ErrNotFound if the
+// site does not exist or has not been soft-deleted (preventing accidental purge
+// of live sites).
+func (s *Store) PurgeDeletedSite(ctx context.Context, group, slug string) error {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM sites WHERE group_path=? AND slug=? AND deleted_at IS NOT NULL`,
+		group, slug)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListDeletedBefore returns all soft-deleted sites whose deleted_at is at or
 // before the given cutoff. Used by the background purge job.
 func (s *Store) ListDeletedBefore(ctx context.Context, cutoff time.Time) ([]Site, error) {

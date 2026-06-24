@@ -21,6 +21,7 @@ export interface Site {
   hidden: boolean;
   created_at: string;
   updated_at: string;
+  deleted_at?: string;
 }
 
 export interface TreeNode {
@@ -36,9 +37,14 @@ export interface SitesResponse {
   count: number;
 }
 
-export type Capability = "publish" | "unpublish" | "rollback" | "patch";
+export interface DeletedSitesResponse {
+  sites: Site[];
+  count: number;
+}
 
-export const CAPABILITIES: Capability[] = ["publish", "unpublish", "rollback", "patch"];
+export type Capability = "publish" | "unpublish" | "rollback" | "patch" | "purge";
+
+export const CAPABILITIES: Capability[] = ["publish", "unpublish", "rollback", "patch", "purge"];
 
 export type GrantKind = "group" | "site";
 
@@ -186,6 +192,14 @@ export const api = {
     request<Site>(`/api/sites/${sitePath(group, slug)}/rollback`, { method: "POST" }),
 
   publishSite,
+
+  listDeletedSites: () => request<DeletedSitesResponse>("/api/sites/deleted"),
+
+  restoreSite: (group: string, slug: string) =>
+    request<Site>(`/api/sites/deleted/${sitePath(group, slug)}`, { method: "POST" }),
+
+  purgeSite: (group: string, slug: string) =>
+    request<void>(`/api/sites/deleted/${sitePath(group, slug)}`, { method: "DELETE" }),
 
   listKeys: () => request<{ keys: ApiKey[] }>("/api/keys"),
 

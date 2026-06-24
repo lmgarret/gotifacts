@@ -93,12 +93,12 @@ export function SiteDetail({ site, base, isAdmin, onClose, onChanged }: Props) {
               className="danger"
               disabled={busy}
               onClick={() => {
-                if (confirm(`Delete ${site.slug}? This removes its files.`)) {
+                if (confirm(`Unpublish ${site.slug}? The site goes offline immediately. Files are kept in quarantine and can be restored by re-publishing the same slug.`)) {
                   run(() => api.deleteSite(site.group, site.slug));
                 }
               }}
             >
-              Delete
+              Unpublish
             </button>
           </div>
         )}

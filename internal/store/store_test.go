@@ -339,6 +339,73 @@ func TestUpsertTouchRestoresSoftDeleted(t *testing.T) {
 	}
 }
 
+func TestListDeletedSites(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_, _ = st.UpsertSite(ctx, "claude", "live", SiteInput{Title: "Live"})
+	_, _ = st.UpsertSite(ctx, "claude", "gone", SiteInput{Title: "Gone"})
+	_ = st.SoftDeleteSite(ctx, "claude", "gone")
+
+	deleted, err := st.ListDeletedSites(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 1 || deleted[0].Slug != "gone" {
+		t.Fatalf("expected [gone], got %+v", deleted)
+	}
+	// Live site must not appear.
+	for _, s := range deleted {
+		if s.Slug == "live" {
+			t.Fatal("live site must not appear in ListDeletedSites")
+		}
+	}
+}
+
+func TestRestoreSite(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_, _ = st.UpsertSite(ctx, "", "app", SiteInput{Title: "App"})
+	_ = st.SoftDeleteSite(ctx, "", "app")
+
+	if err := st.RestoreSite(ctx, "", "app"); err != nil {
+		t.Fatalf("RestoreSite: %v", err)
+	}
+	// Site is visible again.
+	if _, err := st.GetSite(ctx, "", "app"); err != nil {
+		t.Fatalf("GetSite after restore: %v", err)
+	}
+
+	// Restoring a live site returns ErrNotFound (not currently soft-deleted).
+	if err := st.RestoreSite(ctx, "", "app"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("restore live site: want ErrNotFound, got %v", err)
+	}
+	// Restoring a nonexistent site also returns ErrNotFound.
+	if err := st.RestoreSite(ctx, "x", "y"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("restore missing site: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestPurgeDeletedSite(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	_, _ = st.UpsertSite(ctx, "", "app", SiteInput{})
+	_ = st.SoftDeleteSite(ctx, "", "app")
+
+	if err := st.PurgeDeletedSite(ctx, "", "app"); err != nil {
+		t.Fatalf("PurgeDeletedSite: %v", err)
+	}
+	// Row fully gone.
+	if err := st.PurgeDeletedSite(ctx, "", "app"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("double-purge: want ErrNotFound, got %v", err)
+	}
+
+	// Purging a live (non-deleted) site must fail with ErrNotFound.
+	_, _ = st.UpsertSite(ctx, "", "live", SiteInput{})
+	if err := st.PurgeDeletedSite(ctx, "", "live"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("purge live site: want ErrNotFound, got %v", err)
+	}
+}
+
 func TestKeyLifecycle(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
