@@ -64,7 +64,7 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 	if _, err := rand.Read(csrf); err != nil {
 		return nil, fmt.Errorf("mcp csrf key: %w", err)
 	}
-	s := &Service{cfg: cfg, store: st, pub: pub, log: log, csrfKey: csrf, reg: newRateLimiter(20, time.Minute)}
+	s := &Service{cfg: cfg, store: st, pub: pub, log: log.With("component", "mcp"), csrfKey: csrf, reg: newRateLimiter(20, time.Minute)}
 
 	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gotifacts", Version: serverVersion}, nil)
 	mcpsdk.AddTool(srv, &mcpsdk.Tool{
@@ -151,9 +151,10 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	}
 	res, _, err := s.pub.Publish(ctx, meta, ingest.KindIndex, strings.NewReader(in.HTML))
 	if err != nil {
+		s.log.Warn("mcp publish failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("publish failed: " + err.Error()), publishOutput{}, nil
 	}
-	s.log.Info("mcp publish", "user", p.User, "group", res.Group, "slug", res.Slug)
+	s.log.Info("site published", "user", p.User, "source", "mcp", "group", res.Group, "slug", res.Slug, "url", res.URL)
 	out := publishOutput{URL: res.URL, Group: res.Group, Slug: res.Slug}
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "Published to " + res.URL}},
@@ -183,9 +184,10 @@ func (s *Service) unpublishSite(ctx context.Context, req *mcpsdk.CallToolRequest
 		return errorResult(fmt.Sprintf("this connection is not permitted to unpublish %q in group %q", in.Slug, group)), struct{}{}, nil
 	}
 	if err := s.pub.Unpublish(ctx, group, in.Slug); err != nil {
+		s.log.Warn("mcp unpublish failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("unpublish failed: " + err.Error()), struct{}{}, nil
 	}
-	s.log.Info("mcp unpublish", "user", p.User, "group", group, "slug", in.Slug)
+	s.log.Info("site unpublished", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been unpublished.", in.Slug, group)}},
 	}, struct{}{}, nil
@@ -232,9 +234,10 @@ func (s *Service) updateSite(ctx context.Context, req *mcpsdk.CallToolRequest, i
 		patch.Tags = &in.Tags
 	}
 	if _, err := s.store.PatchSite(ctx, group, in.Slug, patch); err != nil {
+		s.log.Warn("mcp update failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("update failed: " + err.Error()), updateOutput{}, nil
 	}
-	s.log.Info("mcp update", "user", p.User, "group", group, "slug", in.Slug)
+	s.log.Info("site metadata patched", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	out := updateOutput{Group: group, Slug: in.Slug}
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been updated.", in.Slug, group)}},
@@ -274,9 +277,10 @@ func (s *Service) rollbackSite(ctx context.Context, req *mcpsdk.CallToolRequest,
 		return errorResult("invalid site path: " + err.Error()), rollbackOutput{}, nil
 	}
 	if err := s.pub.Rollback(ctx, sp); err != nil {
+		s.log.Warn("mcp rollback failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("rollback failed: " + err.Error()), rollbackOutput{}, nil
 	}
-	s.log.Info("mcp rollback", "user", p.User, "group", group, "slug", in.Slug)
+	s.log.Info("site rolled back", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	out := rollbackOutput{Group: group, Slug: in.Slug}
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been rolled back to the previous version.", in.Slug, group)}},
@@ -306,9 +310,10 @@ func (s *Service) restoreSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 		return errorResult(fmt.Sprintf("this connection is not permitted to restore %q in group %q", in.Slug, group)), struct{}{}, nil
 	}
 	if err := s.pub.Restore(ctx, group, in.Slug); err != nil {
+		s.log.Warn("mcp restore failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("restore failed: " + err.Error()), struct{}{}, nil
 	}
-	s.log.Info("mcp restore", "user", p.User, "group", group, "slug", in.Slug)
+	s.log.Info("site restored", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been restored.", in.Slug, group)}},
 	}, struct{}{}, nil
@@ -337,9 +342,10 @@ func (s *Service) purgeSite(ctx context.Context, req *mcpsdk.CallToolRequest, in
 		return errorResult(fmt.Sprintf("this connection is not permitted to purge %q in group %q", in.Slug, group)), struct{}{}, nil
 	}
 	if err := s.pub.Purge(ctx, group, in.Slug); err != nil {
+		s.log.Warn("mcp purge failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("purge failed: " + err.Error()), struct{}{}, nil
 	}
-	s.log.Info("mcp purge", "user", p.User, "group", group, "slug", in.Slug)
+	s.log.Info("site purged", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been permanently deleted.", in.Slug, group)}},
 	}, struct{}{}, nil

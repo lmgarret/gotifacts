@@ -12,6 +12,7 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -107,11 +108,14 @@ func groupAllowed(restriction, target string) bool {
 type Authenticator struct {
 	cfg   *config.Config
 	store *store.Store
+	log   *slog.Logger
 }
 
-// New returns an Authenticator.
+// New returns an Authenticator. It logs authentication decisions through the
+// process default logger (see logging.New / slog.SetDefault), with most detail
+// at debug level so operators can diagnose forward-auth and API-key rejections.
 func New(cfg *config.Config, st *store.Store) *Authenticator {
-	return &Authenticator{cfg: cfg, store: st}
+	return &Authenticator{cfg: cfg, store: st, log: slog.Default().With("component", "auth")}
 }
 
 // ForwardAuth resolves the management-plane principal from r, or nil if the
@@ -120,15 +124,19 @@ func New(cfg *config.Config, st *store.Store) *Authenticator {
 func (a *Authenticator) ForwardAuth(r *http.Request) *Principal {
 	peer, ok := peerAddr(r)
 	if !ok || !a.cfg.TrustsAddr(peer) {
+		a.log.Debug("forward-auth rejected: peer is not a trusted proxy", "peer", peer.String())
 		return nil
 	}
 	user := strings.TrimSpace(r.Header.Get(a.cfg.ForwardAuthHeader))
 	if user == "" {
+		a.log.Debug("forward-auth rejected: identity header absent", "header", a.cfg.ForwardAuthHeader, "peer", peer.String())
 		return nil
 	}
+	admin := a.cfg.IsAdminUser(user)
+	a.log.Debug("forward-auth accepted", "user", user, "admin", admin)
 	return &Principal{
 		User:   user,
-		Admin:  a.cfg.IsAdminUser(user),
+		Admin:  admin,
 		Source: SourceForwardAuth,
 	}
 }
@@ -142,12 +150,15 @@ func (a *Authenticator) APIKey(ctx context.Context, r *http.Request) *Principal 
 	}
 	rec, err := a.store.FindKeyByHash(ctx, keys.Hash(token))
 	if err != nil {
+		a.log.Debug("api key rejected: no matching key")
 		return nil
 	}
 	if rec.Expired(time.Now()) {
+		a.log.Warn("api key rejected: key has expired", "key_id", rec.ID, "name", rec.Name)
 		return nil
 	}
 	a.store.TouchKey(ctx, rec.ID)
+	a.log.Debug("api key accepted", "key_id", rec.ID, "name", rec.Name, "admin", rec.Admin)
 	return &Principal{
 		User:   rec.Name,
 		Admin:  rec.Admin,

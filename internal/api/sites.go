@@ -37,6 +37,7 @@ func (s *Server) handleListSites(w http.ResponseWriter, r *http.Request, p *auth
 	}
 	sites, err := s.store.ListSites(r.Context(), f)
 	if err != nil {
+		s.log.Error("failed to list sites", "user", p.User, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to list sites")
 		return
 	}
@@ -55,18 +56,18 @@ func (s *Server) handleUploadSite(w http.ResponseWriter, r *http.Request, p *aut
 	s.publish(w, r, p)
 }
 
-func (s *Server) handlePatchSite(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handlePatchSite(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	sp, err := parseSitePath(r.PathValue("rest"), "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid site path")
 		return
 	}
-	s.patchSite(w, r, sp.Group, sp.Slug)
+	s.patchSite(w, r, p, sp.Group, sp.Slug)
 }
 
 // patchSite decodes a metadata patch body and applies it to the named site,
 // writing the JSON response. Shared by the management and ingest planes.
-func (s *Server) patchSite(w http.ResponseWriter, r *http.Request, group, slug string) {
+func (s *Server) patchSite(w http.ResponseWriter, r *http.Request, p *auth.Principal, group, slug string) {
 	var body struct {
 		Title       *string   `json:"title"`
 		Description *string   `json:"description"`
@@ -94,13 +95,15 @@ func (s *Server) patchSite(w http.ResponseWriter, r *http.Request, group, slug s
 		return
 	}
 	if err != nil {
+		s.log.Error("failed to patch site", "user", p.User, "group", group, "slug", slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to update site")
 		return
 	}
+	s.log.Info("site metadata patched", "user", p.User, "source", p.Source, "group", group, "slug", slug)
 	writeJSON(w, http.StatusOK, site)
 }
 
-func (s *Server) handleDeleteSite(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handleDeleteSite(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	sp, err := parseSitePath(r.PathValue("rest"), "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid site path")
@@ -110,39 +113,45 @@ func (s *Server) handleDeleteSite(w http.ResponseWriter, r *http.Request, _ *aut
 		writeError(w, http.StatusNotFound, "site not found")
 		return
 	} else if err != nil {
+		s.log.Error("failed to unpublish site", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete site")
 		return
 	}
+	s.log.Info("site unpublished", "user", p.User, "source", p.Source, "group", sp.Group, "slug", sp.Slug)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleRollbackSite(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handleRollbackSite(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	sp, err := parseSitePath(r.PathValue("rest"), "rollback")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rollback path")
 		return
 	}
-	s.rollbackSite(w, r, sp)
+	s.rollbackSite(w, r, p, sp)
 }
 
 // rollbackSite restores the named site's previous version and writes the
 // resulting site as JSON. Shared by the management and ingest planes.
-func (s *Server) rollbackSite(w http.ResponseWriter, r *http.Request, sp router.SitePath) {
+func (s *Server) rollbackSite(w http.ResponseWriter, r *http.Request, p *auth.Principal, sp router.SitePath) {
 	if err := s.pub.Rollback(r.Context(), sp); err != nil {
+		s.log.Warn("site rollback failed", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	site, err := s.store.GetSite(r.Context(), sp.Group, sp.Slug)
 	if err != nil {
+		s.log.Error("rolled back but registry read failed", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "rolled back but registry read failed")
 		return
 	}
+	s.log.Info("site rolled back", "user", p.User, "source", p.Source, "group", sp.Group, "slug", sp.Slug)
 	writeJSON(w, http.StatusOK, site)
 }
 
-func (s *Server) handleListDeletedSites(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handleListDeletedSites(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	sites, err := s.store.ListDeletedSites(r.Context())
 	if err != nil {
+		s.log.Error("failed to list deleted sites", "user", p.User, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to list deleted sites")
 		return
 	}
@@ -152,7 +161,7 @@ func (s *Server) handleListDeletedSites(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, http.StatusOK, map[string]any{"sites": sites, "count": len(sites)})
 }
 
-func (s *Server) handleRestoreSite(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handleRestoreSite(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	sp, err := parseSitePath(r.PathValue("rest"), "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid site path")
@@ -162,18 +171,21 @@ func (s *Server) handleRestoreSite(w http.ResponseWriter, r *http.Request, _ *au
 		writeError(w, http.StatusNotFound, "site not found or not deleted")
 		return
 	} else if err != nil {
+		s.log.Error("failed to restore site", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to restore site")
 		return
 	}
 	site, err := s.store.GetSite(r.Context(), sp.Group, sp.Slug)
 	if err != nil {
+		s.log.Error("restored but registry read failed", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "restored but registry read failed")
 		return
 	}
+	s.log.Info("site restored", "user", p.User, "source", p.Source, "group", sp.Group, "slug", sp.Slug)
 	writeJSON(w, http.StatusOK, site)
 }
 
-func (s *Server) handlePurgeSite(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handlePurgeSite(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	sp, err := parseSitePath(r.PathValue("rest"), "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid site path")
@@ -183,9 +195,11 @@ func (s *Server) handlePurgeSite(w http.ResponseWriter, r *http.Request, _ *auth
 		writeError(w, http.StatusNotFound, "site not found or not deleted")
 		return
 	} else if err != nil {
+		s.log.Error("failed to purge site", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to purge site")
 		return
 	}
+	s.log.Info("site purged", "user", p.User, "source", p.Source, "group", sp.Group, "slug", sp.Slug)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -210,10 +224,11 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request, p *auth.Princip
 
 	res, _, err := s.pub.Publish(r.Context(), meta, kind, content)
 	if err != nil {
-		s.log.Warn("publish failed", "group", meta.Group, "slug", meta.Slug, "err", err)
+		s.log.Warn("publish failed", "user", p.User, "group", meta.Group, "slug", meta.Slug, "err", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.log.Info("site published", "user", p.User, "source", p.Source, "group", res.Group, "slug", res.Slug, "url", res.URL)
 	writeJSON(w, http.StatusOK, res)
 }
 

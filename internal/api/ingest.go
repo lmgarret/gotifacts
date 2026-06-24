@@ -32,9 +32,11 @@ func (s *Server) handleIngestDelete(w http.ResponseWriter, r *http.Request, p *a
 		writeError(w, http.StatusNotFound, "site not found")
 		return
 	} else if err != nil {
+		s.log.Error("failed to unpublish site", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to unpublish site")
 		return
 	}
+	s.log.Info("site unpublished", "user", p.User, "source", p.Source, "group", sp.Group, "slug", sp.Slug)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -49,7 +51,7 @@ func (s *Server) handleIngestPatch(w http.ResponseWriter, r *http.Request, p *au
 		writeError(w, http.StatusForbidden, "key not permitted to patch this group")
 		return
 	}
-	s.patchSite(w, r, sp.Group, sp.Slug)
+	s.patchSite(w, r, p, sp.Group, sp.Slug)
 }
 
 // handleIngestAction dispatches POST /ingest/sites/{path}/{action} based on the
@@ -71,9 +73,11 @@ func (s *Server) handleIngestAction(w http.ResponseWriter, r *http.Request, p *a
 			writeError(w, http.StatusNotFound, "site not found or not deleted")
 			return
 		} else if err != nil {
+			s.log.Error("failed to purge site", "user", p.User, "group", sp.Group, "slug", sp.Slug, "err", err)
 			writeError(w, http.StatusInternalServerError, "failed to purge site")
 			return
 		}
+		s.log.Info("site purged", "user", p.User, "source", p.Source, "group", sp.Group, "slug", sp.Slug)
 		w.WriteHeader(http.StatusNoContent)
 	default: // "rollback"
 		sp, err := parseSitePath(rest, "rollback")
@@ -85,7 +89,7 @@ func (s *Server) handleIngestAction(w http.ResponseWriter, r *http.Request, p *a
 			writeError(w, http.StatusForbidden, "key not permitted to roll back this group")
 			return
 		}
-		s.rollbackSite(w, r, sp)
+		s.rollbackSite(w, r, p, sp)
 	}
 }
 

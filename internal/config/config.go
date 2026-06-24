@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lmgarret/gotifacts/internal/logging"
 )
 
 // Default values applied when the corresponding environment variable is unset.
@@ -28,6 +30,8 @@ const (
 	DefaultMCPGroup          = "claude"
 	DefaultMCPAccessTokenTTL = time.Hour
 	DefaultMCPRefreshTTL     = 30 * 24 * time.Hour
+	DefaultLogLevel          = "info"
+	DefaultLogFormat         = "text"
 )
 
 // Config holds the fully-resolved runtime configuration.
@@ -70,6 +74,10 @@ type Config struct {
 	MCPAccessTokenTTL time.Duration
 	// MCPRefreshTokenTTL is the lifetime of an MCP OAuth refresh token.
 	MCPRefreshTokenTTL time.Duration
+	// LogLevel is the minimum log level emitted: debug, info, warn, or error.
+	LogLevel string
+	// LogFormat selects the log encoding: "text" (human-readable, default) or "json".
+	LogFormat string
 }
 
 // BaseURL returns the canonical https origin of the apex host. It is the OAuth
@@ -145,6 +153,8 @@ func Load() (*Config, error) {
 		VersioningKeep:    DefaultVersioningKeep,
 		MCPAllowedUsers:   splitList(os.Getenv("GOTIFACTS_MCP_ALLOWED_USERS")),
 		MCPGroup:          strings.ToLower(envOr("GOTIFACTS_MCP_GROUP", DefaultMCPGroup)),
+		LogLevel:          strings.ToLower(envOr("GOTIFACTS_LOG_LEVEL", DefaultLogLevel)),
+		LogFormat:         strings.ToLower(envOr("GOTIFACTS_LOG_FORMAT", DefaultLogFormat)),
 	}
 	c.DBPath = envOr("GOTIFACTS_DB_PATH", c.DataDir+"/gotifacts.db")
 
@@ -213,6 +223,12 @@ func (c *Config) Validate() []error {
 	}
 	if len(c.AdminUsers) == 0 && len(c.TrustedProxies) == 0 {
 		errs = append(errs, fmt.Errorf("no admins reachable: set GOTIFACTS_ADMIN_USERS and GOTIFACTS_TRUSTED_PROXIES, or create an admin key via the CLI"))
+	}
+	if _, err := logging.ParseLevel(c.LogLevel); err != nil {
+		errs = append(errs, fmt.Errorf("GOTIFACTS_LOG_LEVEL: %w", err))
+	}
+	if !logging.ValidFormat(c.LogFormat) {
+		errs = append(errs, fmt.Errorf("GOTIFACTS_LOG_FORMAT %q is invalid (want text or json)", c.LogFormat))
 	}
 	errs = append(errs, c.validateMCP()...)
 	return errs

@@ -13,9 +13,10 @@ import (
 	"github.com/lmgarret/gotifacts/internal/store"
 )
 
-func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	ks, err := s.store.ListKeys(r.Context())
 	if err != nil {
+		s.log.Error("failed to list keys", "user", p.User, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to list keys")
 		return
 	}
@@ -25,7 +26,7 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request, _ *auth.
 	writeJSON(w, http.StatusOK, map[string]any{"keys": ks})
 }
 
-func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, actor *auth.Principal) {
 	var body struct {
 		Name   string `json:"name"`
 		Admin  bool   `json:"admin"`
@@ -99,14 +100,17 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request, _ *auth
 
 	token, hash, err := keys.Generate()
 	if err != nil {
+		s.log.Error("failed to generate API key", "user", actor.User, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to generate key")
 		return
 	}
 	rec, err := s.store.CreateKey(r.Context(), body.Name, admin, grants, expiresAt, hash)
 	if err != nil {
+		s.log.Error("failed to create API key", "user", actor.User, "name", body.Name, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to create key")
 		return
 	}
+	s.log.Info("API key created", "user", actor.User, "key_id", rec.ID, "name", rec.Name, "admin", rec.Admin, "grants", len(rec.Grants))
 	// Plaintext token is returned exactly once.
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":         rec.ID,
@@ -205,7 +209,7 @@ func validateKeyShape(admin bool, grants []store.Grant) error {
 	return nil
 }
 
-func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request, actor *auth.Principal) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid key id")
@@ -215,8 +219,10 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request, _ *auth
 		writeError(w, http.StatusNotFound, "key not found")
 		return
 	} else if err != nil {
+		s.log.Error("failed to delete API key", "user", actor.User, "key_id", id, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete key")
 		return
 	}
+	s.log.Info("API key revoked", "user", actor.User, "key_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
