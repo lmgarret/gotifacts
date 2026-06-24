@@ -2,6 +2,7 @@ package httplog
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -35,7 +36,7 @@ func TestMiddlewareLevelByStatus(t *testing.T) {
 				_, _ = w.Write([]byte("body"))
 			}))
 
-			req := httptest.NewRequest(http.MethodGet, "http://app.example.com/x", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://app.example.com/x", nil)
 			h.ServeHTTP(httptest.NewRecorder(), req)
 
 			var rec map[string]any
@@ -65,7 +66,7 @@ func TestMiddlewareDefaultStatus(t *testing.T) {
 	h := Middleware(newTestLogger(&buf), slog.LevelInfo)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://h/", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://h/", nil))
 
 	var rec map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &rec); err != nil {

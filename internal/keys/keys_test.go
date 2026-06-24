@@ -31,7 +31,14 @@ func TestEqualConstantTime(t *testing.T) {
 	if !Equal(h, h) {
 		t.Fatal("equal hashes compared unequal")
 	}
-	if Equal(h, h[:len(h)-1]+"0") {
+	// Flip the last hex digit to a value it cannot already hold, so the compared
+	// string is always different (replacing with a fixed digit would collide
+	// ~1/16 of the time when the hash already ends in that digit).
+	flip := byte('0')
+	if h[len(h)-1] == flip {
+		flip = '1'
+	}
+	if Equal(h, h[:len(h)-1]+string(flip)) {
 		t.Fatal("different hashes compared equal")
 	}
 }
