@@ -109,6 +109,19 @@ a {
     color: var(--danger);
 }
 
+.notice {
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.8rem;
+    font-size: 0.85rem;
+    color: var(--text);
+}
+
+.notice code {
+    font-size: 0.8rem;
+}
+
 .centered {
     max-width: 32rem;
     margin: 4rem auto;
@@ -629,6 +642,124 @@ main {
     gap: 0.5rem;
     margin-top: 1.25rem;
     flex-wrap: wrap;
+}
+
+/* Site page (dedicated per-site view with tabs) */
+.sitepage-head h2 {
+    margin-bottom: 0.2rem;
+}
+
+.sitepage .back {
+    margin-bottom: 0.5rem;
+}
+
+.tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--border);
+    margin: 1rem 0 1.25rem;
+}
+
+.tab {
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    padding: 0.5rem 0.9rem;
+    color: var(--muted);
+}
+
+.tab:hover {
+    border-color: transparent;
+    color: var(--text);
+}
+
+.tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+
+/* anchor styled as a button (download links) */
+a.button {
+    display: inline-block;
+    font: inherit;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.45rem 0.8rem;
+    transition:
+        background 0.15s,
+        border-color 0.15s;
+}
+
+a.button:hover {
+    border-color: var(--accent);
+}
+
+/* Files tab: revision picker + file tree */
+.files-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.files-toolbar .field-label {
+    margin: 0;
+}
+
+.filetree {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.9rem;
+}
+
+.file-row,
+.file-dir-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.3rem 0.4rem;
+}
+
+.file-dir-header {
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+}
+
+.file-dir-header:hover {
+    background: var(--accent-soft);
+    border-color: transparent;
+}
+
+.file-row:hover {
+    background: var(--accent-soft);
+    border-radius: 6px;
+}
+
+.file-name {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-size {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+}
+
+.file-dl {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
 }
 
 /* Keys */

@@ -56,6 +56,7 @@ func (s *Server) Handler() http.Handler {
 	// Management plane (forward-auth).
 	mux.HandleFunc("GET /api/me", s.requireUser(s.handleMe))
 	mux.HandleFunc("GET /api/sites", s.requireUser(s.handleListSites))
+	mux.HandleFunc("GET /api/sites/{rest...}", s.requireUser(s.handleSiteGet))
 	mux.HandleFunc("POST /api/sites", s.requireAdmin(s.handleUploadSite))
 	mux.HandleFunc("PATCH /api/sites/{rest...}", s.requireAdmin(s.handlePatchSite))
 	mux.HandleFunc("DELETE /api/sites/{rest...}", s.requireAdmin(s.handleDeleteSite))
@@ -70,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Ingest plane (API-key). Each handler authorizes the specific capability
 	// against the request's group; admin keys pass unconditionally.
+	mux.HandleFunc("GET /ingest/sites/{rest...}", s.requireKey(s.handleIngestRevisions))
 	mux.HandleFunc("POST /ingest/sites", s.requireKey(s.handleIngestPublish))
 	mux.HandleFunc("POST /ingest/sites/{rest...}", s.requireKey(s.handleIngestAction))
 	mux.HandleFunc("PATCH /ingest/sites/{rest...}", s.requireKey(s.handleIngestPatch))
