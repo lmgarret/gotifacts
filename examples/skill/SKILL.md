@@ -1,9 +1,10 @@
 ---
 name: gotifacts
 description: >-
-  Publish, unpublish, update, or roll back sites on a gotifacts instance.
-  Use when the user asks to "publish this", "put this on gotifacts", "share
-  this as a web page", "take that down", "update the description", or similar.
+  Publish, unpublish, update, roll back, restore, or purge sites on a gotifacts
+  instance. Use when the user asks to "publish this", "put this on gotifacts",
+  "share this as a web page", "take that down", "restore that site", "delete it
+  permanently", "update the description", or similar.
   The golden path is the gotifacts MCP connector (OAuth, no env vars required).
   Falls back to GOTIFACTS_URL + GOTIFACTS_API_KEY for CI and environments
   without an MCP connector configured.
@@ -12,17 +13,19 @@ description: >-
 # gotifacts skill
 
 This skill manages sites on a [gotifacts](https://github.com/lmgarret/gotifacts)
-instance: publish, unpublish, update metadata, and roll back to a prior version.
+instance: publish, unpublish, update metadata, roll back to a prior version,
+restore from quarantine, and permanently purge.
 
 ## Paths
 
 ### Golden path — MCP connector
 
 When a gotifacts MCP connector is active in the session, the tools
-`publish_site`, `unpublish_site`, `update_site`, and `rollback_site` are
-available directly. **Use those tools instead of curl.** No env vars or API
-keys are needed; the connector authenticates via OAuth and its grants already
-scope what the connection is allowed to do.
+`publish_site`, `unpublish_site`, `update_site`, `rollback_site`,
+`restore_site`, and `purge_site` are available directly. **Use those tools
+instead of curl.** No env vars or API keys are needed; the connector
+authenticates via OAuth and its grants already scope what the connection is
+allowed to do.
 
 Proceed to the [Operations](#operations) section and substitute the
 corresponding MCP tool call for each curl command.
@@ -163,6 +166,47 @@ curl -fsS -X POST \
 ```
 
 Requires the `rollback` capability.
+
+---
+
+### Restore (undo unpublish)
+
+Brings a soft-deleted site back online within the server's grace period.
+Moves quarantined files back to live and clears the `deleted_at` flag.
+
+**MCP:** call `restore_site` with `slug` and optional `group`.
+
+**API key — curl:**
+
+```sh
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${GOTIFACTS_API_KEY}" \
+  "${GOTIFACTS_URL}/ingest/sites/<group>/<slug>/restore"
+```
+
+Returns the restored site object. Requires the `publish` capability (restoring
+a site is equivalent to republishing it).
+
+---
+
+### Purge (permanent delete)
+
+Immediately and irreversibly destroys a soft-deleted (quarantined) site and its
+files. **This cannot be undone.** The site must already be unpublished — calling
+purge on a live site returns `404`.
+
+**MCP:** call `purge_site` with `slug` and optional `group`.
+
+**API key — curl:**
+
+```sh
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${GOTIFACTS_API_KEY}" \
+  "${GOTIFACTS_URL}/ingest/sites/<group>/<slug>/purge"
+```
+
+A `204 No Content` response confirms permanent deletion. Requires the `purge`
+capability.
 
 ---
 
