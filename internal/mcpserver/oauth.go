@@ -31,7 +31,7 @@ var labelRE = regexp.MustCompile(router.LabelPattern)
 // consentCapabilities is the fixed set of capabilities offered on the consent
 // screen, in display order. publish is pre-checked.
 var consentCapabilities = []keys.Capability{
-	keys.CapPublish, keys.CapPatch, keys.CapUnpublish, keys.CapRollback,
+	keys.CapPublish, keys.CapPatch, keys.CapUnpublish, keys.CapRollback, keys.CapPurge,
 }
 
 // RegisterPublic registers the machine-facing OAuth + MCP routes. These MUST be
