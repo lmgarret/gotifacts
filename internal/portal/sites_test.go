@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,7 +25,7 @@ func writeSite(t *testing.T, cfg *config.Config, dir, body string) {
 
 func get(t *testing.T, h http.Handler, host, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodGet, "http://"+host+path, nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+host+path, nil)
 	r.Host = host
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
