@@ -302,6 +302,34 @@ main {
     opacity: 0.6;
 }
 
+/*
+ * Easter egg: "shake the Dogédex" drops the visible cards under gravity. The
+ * cards themselves are styled by JS with inline transforms only (so their
+ * appearance is unchanged); these rules just cover the floating reset control.
+ */
+.gravity-reset {
+    position: fixed;
+    left: 50%;
+    bottom: 1.25rem;
+    transform: translateX(-50%);
+    z-index: 1000;
+    padding: 0.5rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Shake auto-trigger is disabled in JS; nothing extra to animate here. */
+    .gravity-reset {
+        transition: none;
+    }
+}
+
 .card-body {
     padding: 0.75rem 0.9rem 0.9rem;
     cursor: pointer;

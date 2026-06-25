@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Me, type Site, type TreeNode } from "../api";
 import { GroupSection } from "./GroupSection";
 import { SitesTable } from "./SitesTable";
 import { SiteCreateModal } from "./SiteCreateModal";
+import { useShakeGravity } from "../useShakeGravity";
 
 interface Props {
   me: Me;
@@ -33,6 +34,11 @@ export function Portal({ me, onOpenSite }: Props) {
   const [showHidden, setShowHidden] = useState(false);
   const [creating, setCreating] = useState(false);
   const [layout, setLayout] = useState<Layout>(initialLayout);
+
+  // Easter egg: shake the phone (or enter the Konami code) to drop the visible
+  // cards under gravity. Scoped to this container, which holds the card grid.
+  const portalRef = useRef<HTMLDivElement>(null);
+  const gravity = useShakeGravity(portalRef);
 
   useEffect(() => {
     localStorage.setItem(LAYOUT_KEY, layout);
@@ -104,7 +110,7 @@ export function Portal({ me, onOpenSite }: Props) {
   }, []);
 
   return (
-    <div className="portal">
+    <div className="portal" ref={portalRef}>
       <div className="toolbar">
         <input
           type="search"
@@ -196,6 +202,12 @@ export function Portal({ me, onOpenSite }: Props) {
           onClose={() => setCreating(false)}
           onCreated={load}
         />
+      )}
+
+      {gravity.active && (
+        <button className="gravity-reset" onClick={gravity.deactivate}>
+          ↺ put the cards back
+        </button>
       )}
     </div>
   );
