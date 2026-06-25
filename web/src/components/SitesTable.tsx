@@ -9,13 +9,14 @@ interface Props {
   onSelect: (s: Site) => void;
 }
 
-type SortKey = "title" | "group" | "date" | "updated";
+type SortKey = "title" | "slug" | "group" | "date" | "updated";
 type Dir = "asc" | "desc";
 
 // Default sort direction per column: text sorts ascending, dates descending
 // (newest first), matching what a reader usually wants on first click.
 const DEFAULT_DIR: Record<SortKey, Dir> = {
   title: "asc",
+  slug: "asc",
   group: "asc",
   date: "desc",
   updated: "desc",
@@ -30,6 +31,8 @@ function compare(a: Site, b: Site, key: SortKey): number {
   switch (key) {
     case "title":
       return siteTitle(a).localeCompare(siteTitle(b), undefined, { sensitivity: "base" });
+    case "slug":
+      return a.slug.localeCompare(b.slug, undefined, { sensitivity: "base" });
     case "group":
       return (a.group || "").localeCompare(b.group || "", undefined, { sensitivity: "base" });
     case "date":
@@ -96,6 +99,7 @@ export function SitesTable({ sites, base, onSelect }: Props) {
             <th className="col-icon" aria-label="Favicon" />
             {header("title", "Title")}
             {header("group", "Group")}
+            {header("slug", "Slug")}
             {header("date", "Date")}
             {header("updated", "Updated")}
             <th className="col-tags">Tags</th>
@@ -121,6 +125,7 @@ export function SitesTable({ sites, base, onSelect }: Props) {
                   {s.description && <span className="t-desc">{s.description}</span>}
                 </td>
                 <td className="col-group">{s.group || "—"}</td>
+                <td className="col-slug">{s.slug}</td>
                 <td className="col-date">{fmtDate(s.date)}</td>
                 <td className="col-date">{fmtDate(s.updated_at)}</td>
                 <td className="col-tags">
