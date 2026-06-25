@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type Site } from "../api";
 import { siteURL } from "../sitehost";
 import { FilesTab } from "./FilesTab";
+import { SiteEditModal } from "./SiteEditModal";
 
 interface Props {
   site: Site;
@@ -24,6 +25,7 @@ export function SitePage({ site: initial, base, isAdmin, versioningEnabled, onBa
   const [tab, setTab] = useState<Tab>("overview");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const url = siteURL(site, base);
 
   const toggleHidden = () => {
@@ -128,6 +130,9 @@ export function SitePage({ site: initial, base, isAdmin, versioningEnabled, onBa
           )}
           {isAdmin && (
             <div className="actions">
+              <button disabled={busy} onClick={() => setEditing(true)}>
+                Edit
+              </button>
               <button disabled={busy} onClick={toggleHidden}>
                 {site.hidden ? "Unhide" : "Hide"}
               </button>
@@ -148,6 +153,17 @@ export function SitePage({ site: initial, base, isAdmin, versioningEnabled, onBa
             onRolledBack={setSite}
           />
         </div>
+      )}
+
+      {editing && (
+        <SiteEditModal
+          site={site}
+          onClose={() => setEditing(false)}
+          onSaved={(updated) => {
+            setSite(updated);
+            setEditing(false);
+          }}
+        />
       )}
     </div>
   );

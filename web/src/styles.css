@@ -452,7 +452,8 @@ main {
     max-width: 28rem;
 }
 
-.sites-table .col-group {
+.sites-table .col-group,
+.sites-table .col-slug {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.82rem;
     color: var(--muted);
