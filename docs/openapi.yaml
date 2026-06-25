@@ -775,6 +775,12 @@ components:
       properties:
         name: { type: string }
         path: { type: string }
+        site:
+          allOf:
+            - $ref: "#/components/schemas/Site"
+          description: >-
+            The group's own landing site, present when a site shares this node's
+            path (e.g. the site "decks" for the group "decks").
         groups:
           type: array
           items: { $ref: "#/components/schemas/TreeNode" }

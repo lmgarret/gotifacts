@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/lmgarret/gotifacts/internal/archive"
@@ -112,7 +113,7 @@ func (p *Publisher) Publish(ctx context.Context, meta Meta, kind Kind, r io.Read
 		return nil, nil, archive.ErrNoIndex
 	}
 
-	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 	if err := p.swap(stage, live, sp); err != nil {
 		return nil, nil, err
 	}
@@ -169,7 +170,7 @@ const versionStampLayout = "20060102T150405.000000000Z"
 
 // archiveVersion moves live into the versions dir under a timestamp, then prunes.
 func (p *Publisher) archiveVersion(live string, sp router.SitePath) error {
-	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.Dir()))
+	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.ContentDir()))
 	if err := os.MkdirAll(verRoot, 0o755); err != nil {
 		return err
 	}
@@ -210,9 +211,9 @@ func (p *Publisher) Unpublish(ctx context.Context, group, slug string) error {
 	if err := p.store.SoftDeleteSite(ctx, group, slug); err != nil {
 		return err
 	}
-	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 	if _, statErr := os.Stat(live); statErr == nil {
-		dst := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+		dst := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.ContentDir()))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create quarantine dir: %w", err)
 		}
@@ -220,6 +221,7 @@ func (p *Publisher) Unpublish(ctx context.Context, group, slug string) error {
 		if err := os.Rename(live, dst); err != nil {
 			return fmt.Errorf("quarantine site: %w", err)
 		}
+		pruneEmptyDirs(filepath.Dir(live), p.cfg.SitesDir())
 	}
 	return nil
 }
@@ -235,9 +237,9 @@ func (p *Publisher) Restore(ctx context.Context, group, slug string) error {
 	if err := p.store.RestoreSite(ctx, group, slug); err != nil {
 		return err
 	}
-	quarantine := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+	quarantine := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.ContentDir()))
 	if _, statErr := os.Stat(quarantine); statErr == nil {
-		live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+		live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 		if err := os.MkdirAll(filepath.Dir(live), 0o755); err != nil {
 			return fmt.Errorf("restore: create site dir: %w", err)
 		}
@@ -245,6 +247,7 @@ func (p *Publisher) Restore(ctx context.Context, group, slug string) error {
 		if err := os.Rename(quarantine, live); err != nil {
 			return fmt.Errorf("restore: move from quarantine: %w", err)
 		}
+		pruneEmptyDirs(filepath.Dir(quarantine), p.cfg.DeletedDir())
 	}
 	return nil
 }
@@ -260,8 +263,9 @@ func (p *Publisher) Purge(ctx context.Context, group, slug string) error {
 	if err := p.store.PurgeDeletedSite(ctx, group, slug); err != nil {
 		return err
 	}
-	quarantine := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+	quarantine := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.ContentDir()))
 	_ = os.RemoveAll(quarantine)
+	pruneEmptyDirs(filepath.Dir(quarantine), p.cfg.DeletedDir())
 	return nil
 }
 
@@ -280,8 +284,9 @@ func (p *Publisher) PurgeDeleted(ctx context.Context) (int, error) {
 		if err != nil {
 			continue
 		}
-		dst := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.Dir()))
+		dst := filepath.Join(p.cfg.DeletedDir(), filepath.FromSlash(sp.ContentDir()))
 		_ = os.RemoveAll(dst)
+		pruneEmptyDirs(filepath.Dir(dst), p.cfg.DeletedDir())
 		if err := p.store.DeleteSite(ctx, site.Group, site.Slug); err == nil {
 			n++
 		}
@@ -295,14 +300,14 @@ func (p *Publisher) Rollback(ctx context.Context, sp router.SitePath) error {
 	if !p.cfg.VersioningEnabled {
 		return fmt.Errorf("versioning is not enabled")
 	}
-	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.Dir()))
+	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.ContentDir()))
 	versions, err := listVersions(verRoot)
 	if err != nil || len(versions) == 0 {
 		return fmt.Errorf("no versions to roll back to")
 	}
 	latest := versions[len(versions)-1]
 	src := filepath.Join(verRoot, latest)
-	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 
 	// Stage current live into versions (so rollback is itself reversible),
 	// then move the chosen version into place.
@@ -384,4 +389,23 @@ func normalizeDate(d string) string {
 		return time.Now().UTC().Format(time.RFC3339)
 	}
 	return d
+}
+
+// pruneEmptyDirs removes dir and walks up removing each now-empty ancestor,
+// stopping before stop (which is never removed). It is best-effort: a non-empty
+// directory — e.g. a group container that still holds sibling sites — ends the
+// walk, as os.Remove fails on non-empty dirs. This keeps the on-disk trees tidy
+// as sites move between the live, versions, and quarantine roots.
+func pruneEmptyDirs(dir, stop string) {
+	stop = filepath.Clean(stop)
+	for {
+		dir = filepath.Clean(dir)
+		if dir == stop || !strings.HasPrefix(dir, stop+string(filepath.Separator)) {
+			return
+		}
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
 }

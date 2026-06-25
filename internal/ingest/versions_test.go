@@ -55,7 +55,7 @@ func TestRevisionDirRejectsTraversalAndUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != filepath.Join(cfg.SitesDir(), "demo") {
+	if dir != filepath.Join(cfg.SitesDir(), "demo", "@site") {
 		t.Fatalf("current dir = %s", dir)
 	}
 
@@ -81,19 +81,19 @@ func TestRollbackToPromotesAndKeepsRevision(t *testing.T) {
 	// current live during rollback may prune the oldest, so target one that
 	// survives to assert copy-not-move semantics.
 	target := revs[1]
-	srcContent, _ := os.ReadFile(filepath.Join(cfg.VersionsDir(), "demo", target.ID, "index.html"))
+	srcContent, _ := os.ReadFile(filepath.Join(cfg.VersionsDir(), "demo", "@site", target.ID, "index.html"))
 
 	if err := p.RollbackTo(ctx, sp, target.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	// Live now matches the promoted revision.
-	live, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "index.html"))
+	live, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "@site", "index.html"))
 	if string(live) != string(srcContent) {
 		t.Fatalf("live = %q, want %q", live, srcContent)
 	}
 	// The promoted revision still exists in history (copy, not move).
-	if _, err := os.Stat(filepath.Join(cfg.VersionsDir(), "demo", target.ID)); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg.VersionsDir(), "demo", "@site", target.ID)); err != nil {
 		t.Fatalf("promoted revision should remain in history: %v", err)
 	}
 }
@@ -104,15 +104,15 @@ func TestRollbackToCurrentIsNoop(t *testing.T) {
 	sp, _ := router.NewSitePath("", "demo")
 	publishSeq(t, p, "v1", "v2")
 
-	before, _ := listVersions(filepath.Join(cfg.VersionsDir(), "demo"))
+	before, _ := listVersions(filepath.Join(cfg.VersionsDir(), "demo", "@site"))
 	if err := p.RollbackTo(ctx, sp, CurrentRevision); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := listVersions(filepath.Join(cfg.VersionsDir(), "demo"))
+	after, _ := listVersions(filepath.Join(cfg.VersionsDir(), "demo", "@site"))
 	if len(after) != len(before) {
 		t.Fatalf("no-op rollback changed history: %d -> %d", len(before), len(after))
 	}
-	live, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "index.html"))
+	live, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "@site", "index.html"))
 	if string(live) != "v2" {
 		t.Fatalf("live changed by no-op rollback: %q", live)
 	}

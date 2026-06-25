@@ -76,7 +76,7 @@ func TestPublishOverMCPTransport(t *testing.T) {
 	if !strings.Contains(text, "https://xport.claude.example.com") {
 		t.Fatalf("unexpected tool output: %q", text)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.SitesDir(), "claude", "xport", "index.html")); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg.SitesDir(), "claude", "xport", "@site", "index.html")); err != nil {
 		t.Fatalf("published file missing: %v", err)
 	}
 }

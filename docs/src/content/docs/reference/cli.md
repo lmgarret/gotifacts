@@ -19,6 +19,7 @@ Commands:
   keys revoke --id ID                     Delete an API key
   mcp connections                         List active MCP connections
   mcp revoke --id ID                      Revoke an MCP connection
+  migrate-layout [--dry-run]              Relocate site content into @site leaves
   version                                 Print the version
   help                                    Show usage
 ```
@@ -92,3 +93,30 @@ alias `mcp list`. No flags.
 ```sh
 gotifacts mcp revoke --id <id>
 ```
+
+## `migrate-layout`
+
+Relocates each site's published files into its reserved `@site` leaf (see the
+[URL ⇄ path convention](/gotifacts/reference/url-path-convention/)). Run it once
+when upgrading a deployment that was created before the `@site` layout existed;
+without it, previously published sites would 404. The command is **idempotent**
+— already-migrated sites are skipped, so it is safe to re-run.
+
+| Flag | Description |
+| --- | --- |
+| `--dry-run`, `-n` | Report what would move without changing anything. |
+
+It reads the registry to tell a site's own content apart from nested child-site
+directories (which are preserved in place). Because it walks the data volume,
+run it during a brief maintenance window so it doesn't race live publishes:
+
+```sh
+docker compose stop gotifacts
+docker compose run --rm gotifacts migrate-layout
+docker compose up -d gotifacts
+```
+
+Any content that isn't backed by a registry row (for example a stray
+sub-directory that was accidentally nested inside another site) is folded into
+that site's `@site` as its own content; re-publish it as a proper site
+afterwards if it should be its own entry.

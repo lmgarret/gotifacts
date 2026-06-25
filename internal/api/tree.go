@@ -13,6 +13,9 @@ type TreeNode struct {
 	Name string `json:"name"`
 	// Path is the full group path to this node (e.g. "grp/sub").
 	Path string `json:"path"`
+	// Site is the group's own landing site, if a flat/leaf site shares this
+	// node's path (e.g. the site "decks" for the group "decks"). nil otherwise.
+	Site *store.Site `json:"site,omitempty"`
 	// Groups are child group nodes, sorted by name.
 	Groups []*TreeNode `json:"groups"`
 	// Sites are the leaf sites directly within this group, sorted by slug.
@@ -57,8 +60,39 @@ func BuildTree(sites []store.Site) *TreeNode {
 		node.Sites = append(node.Sites, site)
 	}
 
+	// Merge a flat/leaf site into the same-named group node: if a site's full
+	// path (group/slug) equals an existing group node's path, it is that group's
+	// landing site rather than a sibling card. e.g. site "decks" + group "decks".
+	for path, node := range index {
+		if path == "" {
+			continue
+		}
+		parentPath, slug := splitGroupPath(path)
+		parent, ok := index[parentPath]
+		if !ok {
+			continue
+		}
+		for i := range parent.Sites {
+			if parent.Sites[i].Group == parentPath && parent.Sites[i].Slug == slug {
+				s := parent.Sites[i]
+				node.Site = &s
+				parent.Sites = append(parent.Sites[:i], parent.Sites[i+1:]...)
+				break
+			}
+		}
+	}
+
 	sortNode(root)
 	return root
+}
+
+// splitGroupPath splits a group path into its parent path and final segment,
+// e.g. "grp/sub" → ("grp", "sub"), "decks" → ("", "decks").
+func splitGroupPath(path string) (parent, last string) {
+	if i := strings.LastIndexByte(path, '/'); i >= 0 {
+		return path[:i], path[i+1:]
+	}
+	return "", path
 }
 
 func sortNode(n *TreeNode) {

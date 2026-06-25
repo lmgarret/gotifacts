@@ -36,12 +36,12 @@ type Revision struct {
 func (p *Publisher) ListRevisions(sp router.SitePath) ([]Revision, error) {
 	var revs []Revision
 
-	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 	if fi, err := os.Stat(live); err == nil && fi.IsDir() {
 		revs = append(revs, Revision{ID: CurrentRevision, Current: true, CreatedAt: fi.ModTime().UTC()})
 	}
 
-	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.Dir()))
+	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.ContentDir()))
 	versions, err := listVersions(verRoot)
 	if err != nil {
 		return nil, err
@@ -60,13 +60,13 @@ func (p *Publisher) ListRevisions(sp router.SitePath) ([]Revision, error) {
 // archived version (this validation also prevents path traversal via the ID).
 func (p *Publisher) RevisionDir(sp router.SitePath, rev string) (string, error) {
 	if rev == "" || rev == CurrentRevision {
-		live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+		live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 		if fi, err := os.Stat(live); err != nil || !fi.IsDir() {
 			return "", ErrRevisionNotFound
 		}
 		return live, nil
 	}
-	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.Dir()))
+	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.ContentDir()))
 	versions, err := listVersions(verRoot)
 	if err != nil {
 		return "", err
@@ -106,7 +106,7 @@ func (p *Publisher) RollbackTo(ctx context.Context, sp router.SitePath, rev stri
 		return err
 	}
 
-	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 	if err := p.swap(stage, live, sp); err != nil {
 		return err
 	}

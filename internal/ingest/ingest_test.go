@@ -51,7 +51,7 @@ func TestPublishSingleIndex(t *testing.T) {
 	if res.URL != "https://app.claude.example.com" {
 		t.Fatalf("unexpected url: %s", res.URL)
 	}
-	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "app", "index.html"))
+	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "app", "@site", "index.html"))
 	if string(got) != "<h1>v1</h1>" {
 		t.Fatalf("content = %q", got)
 	}
@@ -65,7 +65,7 @@ func TestPublishReplaceNoVersioning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "index.html"))
+	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "@site", "index.html"))
 	if string(got) != "v2" {
 		t.Fatalf("replace failed: %q", got)
 	}
@@ -85,11 +85,11 @@ func TestVersioningAndRollback(t *testing.T) {
 		}
 	}
 	// Live should be v3; two prior versions retained (keep=2).
-	live, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "index.html"))
+	live, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "@site", "index.html"))
 	if string(live) != "v3" {
 		t.Fatalf("live = %q", live)
 	}
-	versions, _ := listVersions(filepath.Join(cfg.VersionsDir(), "demo"))
+	versions, _ := listVersions(filepath.Join(cfg.VersionsDir(), "demo", "@site"))
 	if len(versions) != 2 {
 		t.Fatalf("expected 2 retained versions, got %d", len(versions))
 	}
@@ -98,9 +98,44 @@ func TestVersioningAndRollback(t *testing.T) {
 	if err := p.Rollback(ctx, sp); err != nil {
 		t.Fatal(err)
 	}
-	live, _ = os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "index.html"))
+	live, _ = os.ReadFile(filepath.Join(cfg.SitesDir(), "demo", "@site", "index.html"))
 	if string(live) != "v2" {
 		t.Fatalf("after rollback live = %q, want v2", live)
+	}
+}
+
+// TestFlatSiteAndGroupCoexist verifies a flat site and a same-named group can
+// hold content simultaneously, and that re-deploying the flat site does not
+// clobber the group's member sites nested beneath it.
+func TestFlatSiteAndGroupCoexist(t *testing.T) {
+	p, cfg := setup(t, false)
+	ctx := context.Background()
+
+	// Flat site "decks" and a member "pr-6" in the "decks" group.
+	if _, _, err := p.Publish(ctx, Meta{Slug: "decks"}, KindIndex, strings.NewReader("flat-v1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := p.Publish(ctx, Meta{Group: "decks", Slug: "pr-6"}, KindIndex, strings.NewReader("preview")); err != nil {
+		t.Fatal(err)
+	}
+
+	flat := filepath.Join(cfg.SitesDir(), "decks", "@site", "index.html")
+	member := filepath.Join(cfg.SitesDir(), "decks", "pr-6", "@site", "index.html")
+	for _, f := range []string{flat, member} {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatalf("expected %s on disk: %v", f, err)
+		}
+	}
+
+	// Re-deploy the flat site; the member must survive untouched.
+	if _, _, err := p.Publish(ctx, Meta{Slug: "decks"}, KindIndex, strings.NewReader("flat-v2")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(flat); string(got) != "flat-v2" {
+		t.Fatalf("flat content = %q, want flat-v2", got)
+	}
+	if got, _ := os.ReadFile(member); string(got) != "preview" {
+		t.Fatalf("member clobbered by flat redeploy: %q", got)
 	}
 }
 
@@ -118,7 +153,7 @@ func TestUnpublish(t *testing.T) {
 	if _, _, err := p.Publish(ctx, Meta{Group: "claude", Slug: "app"}, KindIndex, strings.NewReader("<h1>v1</h1>")); err != nil {
 		t.Fatal(err)
 	}
-	liveFile := filepath.Join(cfg.SitesDir(), "claude", "app", "index.html")
+	liveFile := filepath.Join(cfg.SitesDir(), "claude", "app", "@site", "index.html")
 	if _, err := os.Stat(liveFile); err != nil {
 		t.Fatalf("live file missing before unpublish: %v", err)
 	}
@@ -131,7 +166,7 @@ func TestUnpublish(t *testing.T) {
 	if _, err := os.Stat(liveFile); !os.IsNotExist(err) {
 		t.Fatal("live file should be removed after unpublish")
 	}
-	quarantine := filepath.Join(cfg.DeletedDir(), "claude", "app", "index.html")
+	quarantine := filepath.Join(cfg.DeletedDir(), "claude", "app", "@site", "index.html")
 	if _, err := os.Stat(quarantine); err != nil {
 		t.Fatalf("quarantine file missing: %v", err)
 	}
@@ -236,7 +271,7 @@ func TestRepublishAfterUnpublish(t *testing.T) {
 	if _, _, err := p.Publish(ctx, Meta{Group: "claude", Slug: "site"}, KindIndex, strings.NewReader("v2")); err != nil {
 		t.Fatalf("republish after unpublish: %v", err)
 	}
-	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "site", "index.html"))
+	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "site", "@site", "index.html"))
 	if string(got) != "v2" {
 		t.Fatalf("republished content = %q, want v2", got)
 	}
@@ -256,7 +291,7 @@ func TestRestoreAfterUnpublish(t *testing.T) {
 	if err := p.Unpublish(ctx, "claude", "site"); err != nil {
 		t.Fatal(err)
 	}
-	liveFile := filepath.Join(cfg.SitesDir(), "claude", "site", "index.html")
+	liveFile := filepath.Join(cfg.SitesDir(), "claude", "site", "@site", "index.html")
 	if _, err := os.Stat(liveFile); !os.IsNotExist(err) {
 		t.Fatal("live file should be absent after unpublish")
 	}
