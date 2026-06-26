@@ -69,3 +69,23 @@ Then put your reverse proxy in front of it for TLS and forward-auth — see
 All state lives under `/data`: the SQLite database (`gotifacts.db`) and the site
 files (`sites/…`). Back up the volume to back up everything. The image runs as a
 non-root user, so the volume must be writable by it.
+
+## Running management commands
+
+The image's entrypoint is the `gotifacts` binary, so any
+[CLI subcommand](/gotifacts/reference/cli/) runs in the service container:
+
+```sh
+docker compose exec gotifacts gotifacts keys list
+```
+
+One command needs a brief maintenance window because it walks the data volume:
+`migrate-layout`, the one-time upgrade that moves published files into the
+`@site` layout (see the [CLI reference](/gotifacts/reference/cli/#migrate-layout)).
+Run it with the server stopped so it can't race live publishes:
+
+```sh
+docker compose stop gotifacts
+docker compose run --rm gotifacts migrate-layout
+docker compose up -d gotifacts
+```

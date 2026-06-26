@@ -30,6 +30,9 @@ export interface Site {
 export interface TreeNode {
   name: string;
   path: string;
+  // site is the group's own landing site when a site shares this node's path
+  // (e.g. the site "decks" for the group "decks").
+  site?: Site;
   groups: TreeNode[];
   sites: Site[];
 }

@@ -25,6 +25,16 @@ export function GroupSection({ node, base, depth, onSelect }: Props) {
       )}
       {open && (
         <div className="group-body">
+          {node.site && (
+            <div className="cards group-landing">
+              <SiteCard
+                key={`${node.site.group}/${node.site.slug}`}
+                site={node.site}
+                base={base}
+                onSelect={onSelect}
+              />
+            </div>
+          )}
           {node.sites.length > 0 && (
             <div className="cards">
               {node.sites.map((s) => (

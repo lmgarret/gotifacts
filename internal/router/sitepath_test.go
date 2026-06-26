@@ -73,6 +73,20 @@ func TestSitePathDir(t *testing.T) {
 	}
 }
 
+func TestSitePathContentDir(t *testing.T) {
+	if got := (SitePath{Group: "grp/sub", Slug: "a"}).ContentDir(); got != "grp/sub/a/"+ContentLeaf {
+		t.Fatalf("ContentDir() = %q", got)
+	}
+	if got := (SitePath{Slug: "demo"}).ContentDir(); got != "demo/"+ContentLeaf {
+		t.Fatalf("flat ContentDir() = %q", got)
+	}
+	// The content leaf must never be a valid label, so it can't collide with a
+	// real slug or group segment nested under the same path.
+	if labelRE.MatchString(ContentLeaf) {
+		t.Fatalf("ContentLeaf %q must not match LabelPattern", ContentLeaf)
+	}
+}
+
 func TestNewSitePathValidation(t *testing.T) {
 	if _, err := NewSitePath("a/b", "c"); err != nil {
 		t.Fatalf("valid path rejected: %v", err)

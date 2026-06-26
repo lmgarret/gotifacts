@@ -142,7 +142,7 @@ func TestIngestPublishZipBundle(t *testing.T) {
 		t.Fatalf("zip publish: got %d, want 200 (%s)", w.Code, w.Body.String())
 	}
 	for _, rel := range []string{"index.html", filepath.Join("assets", "app.css")} {
-		if _, err := os.Stat(filepath.Join(srv.cfg.SitesDir(), "previews", "pr-1", rel)); err != nil {
+		if _, err := os.Stat(filepath.Join(srv.cfg.SitesDir(), "previews", "pr-1", "@site", rel)); err != nil {
 			t.Fatalf("expected %s on disk: %v", rel, err)
 		}
 	}

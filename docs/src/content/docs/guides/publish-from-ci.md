@@ -43,6 +43,12 @@ For a single self-contained page, use the `index` part instead of `bundle` (see
 Publishing is idempotent — re-running replaces the site at the same
 `group`/`slug`.
 
+A group and a flat site may share a name: publishing previews under
+`group: "decks"` (reachable at `pr-6.decks.<base>`) coexists with a flat `decks`
+site at `decks.<base>`. Each site's content is isolated, so deploying the flat
+site never disturbs the previews beneath it. See the
+[URL ⇄ path convention](/gotifacts/reference/url-path-convention/).
+
 ## 3. Tear down a preview
 
 When a PR closes, delete its preview (requires the `unpublish` capability):

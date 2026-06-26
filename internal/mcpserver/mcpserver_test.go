@@ -322,7 +322,7 @@ func TestPublishSiteTool(t *testing.T) {
 	if out.URL != "https://report.claude.example.com" {
 		t.Fatalf("url = %q", out.URL)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.SitesDir(), "claude", "report", "index.html")); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg.SitesDir(), "claude", "report", "@site", "index.html")); err != nil {
 		t.Fatalf("published file missing: %v", err)
 	}
 
@@ -357,7 +357,7 @@ func TestUnpublishSiteTool(t *testing.T) {
 	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "report", HTML: "<!doctype html><h1>hi</h1>"}); err != nil || res.IsError {
 		t.Fatalf("publish setup: %v / %+v", err, res.Content)
 	}
-	liveFile := filepath.Join(cfg.SitesDir(), "claude", "report", "index.html")
+	liveFile := filepath.Join(cfg.SitesDir(), "claude", "report", "@site", "index.html")
 	if _, err := os.Stat(liveFile); err != nil {
 		t.Fatalf("live file missing before unpublish: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestRollbackSiteTool(t *testing.T) {
 	if out.Slug != "page" || out.Group != "claude" {
 		t.Fatalf("unexpected output: %+v", out)
 	}
-	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "page", "index.html"))
+	got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "page", "@site", "index.html"))
 	if string(got) != "v1" {
 		t.Fatalf("after rollback content = %q, want v1", got)
 	}
@@ -562,7 +562,7 @@ func TestRollbackSiteToolRevision(t *testing.T) {
 	if res, _, err := s.rollbackSite(ctx, req, rollbackInput{Slug: "page", Revision: target}); err != nil || res.IsError {
 		t.Fatalf("rollback to revision %q: %v / %+v", target, err, res.Content)
 	}
-	if got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "page", "index.html")); string(got) != "v1" {
+	if got, _ := os.ReadFile(filepath.Join(cfg.SitesDir(), "claude", "page", "@site", "index.html")); string(got) != "v1" {
 		t.Fatalf("after revision rollback content = %q, want v1", got)
 	}
 

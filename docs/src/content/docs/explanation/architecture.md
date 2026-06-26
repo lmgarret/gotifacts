@@ -33,7 +33,7 @@ proxy: "Reverse proxy\n(operator-provided: TLS, forward-auth/SSO)"
 mgmt: Portal UI + management API
 ingest: Machine publish API (API key)
 sites: Static site content
-volume: "Volume (rw)\n/data/gotifacts.db\n/data/sites/<group>/<slug>/" { shape: cylinder }
+volume: "Volume (rw)\n/data/gotifacts.db\n/data/sites/<group>/<slug>/@site/" { shape: cylinder }
 
 gotifacts: "gotifacts (Go, static scratch binary) — HTTP :8080" {
   router: Host router { shape: diamond }
@@ -81,7 +81,10 @@ The only state is the volume:
 
 - `gotifacts.db` — a SQLite registry (via the pure-Go `modernc.org/sqlite`
   driver, so the binary stays CGO-free) holding site metadata and API keys.
-- `sites/<group…>/<slug>/` — the published files for each site.
+- `sites/<group…>/<slug>/@site/` — the published files for each site. The
+  reserved `@site` leaf lets a site be both a leaf and a parent of nested sites
+  (so a flat site `decks` and a group `decks` can coexist); see the
+  [URL ⇄ path convention](/gotifacts/reference/url-path-convention/).
 
 Publishing writes to a temp dir on the same volume, validates the upload, then
 **atomically swaps** it into place — so a site is never served half-written.

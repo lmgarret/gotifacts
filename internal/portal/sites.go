@@ -30,7 +30,7 @@ func (s *SiteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	root := filepath.Join(s.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+	root := filepath.Join(s.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
 		http.NotFound(w, r)
 		return

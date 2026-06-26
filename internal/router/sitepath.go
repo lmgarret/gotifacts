@@ -2,12 +2,14 @@
 // core contract of gotifacts, plus host-based request classification.
 //
 // Convention: strip the configured base domain from a host. The remaining
-// sub-labels, read left→right, run [most-specific … least-specific]. The served
-// directory is those labels reversed:
+// sub-labels, read left→right, run [most-specific … least-specific]. The logical
+// directory is those labels reversed; each site's content is then stored under a
+// reserved [ContentLeaf] subdir so a site can be both a leaf and a parent of
+// other sites (see [SitePath.ContentDir]):
 //
-//	app.claude.<base>   → sites/claude/app   (group "claude", slug "app")
-//	a.sub.grp.<base>    → sites/grp/sub/a     (group "grp/sub", slug "a")
-//	demo.<base>         → sites/demo          (group "",        slug "demo")
+//	app.claude.<base>   → sites/claude/app/@site   (group "claude", slug "app")
+//	a.sub.grp.<base>    → sites/grp/sub/a/@site     (group "grp/sub", slug "a")
+//	demo.<base>         → sites/demo/@site          (group "",        slug "demo")
 //
 // Total depth (group segments + slug) must be ≤ 3. Each label must match
 // [LabelPattern].
@@ -24,6 +26,13 @@ const MaxDepth = 3
 
 // LabelPattern is the regular expression every host label / path segment must match.
 const LabelPattern = `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`
+
+// ContentLeaf is the reserved subdirectory that holds a site's actual content,
+// nested under its logical [SitePath.Dir]. The leading "@" makes it impossible
+// to collide with any slug or group segment (which must match [LabelPattern]),
+// so the directory at Dir() can simultaneously hold this site's content and the
+// directories of nested child sites.
+const ContentLeaf = "@site"
 
 var labelRE = regexp.MustCompile(LabelPattern)
 
@@ -52,13 +61,23 @@ func (s SitePath) GroupSegments() []string {
 	return strings.Split(s.Group, "/")
 }
 
-// Dir returns the on-disk relative directory (group segments then slug),
-// e.g. "grp/sub/a". It is always clean and contains no traversal.
+// Dir returns the logical relative path of the site (group segments then slug),
+// e.g. "grp/sub/a". It is always clean and contains no traversal. This is the
+// site's identity used for grant targets; use [SitePath.ContentDir] for the
+// directory that actually holds the site's files.
 func (s SitePath) Dir() string {
 	if s.Group == "" {
 		return s.Slug
 	}
 	return s.Group + "/" + s.Slug
+}
+
+// ContentDir returns the on-disk relative directory that holds the site's
+// content: its [SitePath.Dir] plus the reserved [ContentLeaf], e.g.
+// "grp/sub/a/@site". Keeping content in a reserved leaf lets the same logical
+// path also be a parent of nested child sites without their files colliding.
+func (s SitePath) ContentDir() string {
+	return s.Dir() + "/" + ContentLeaf
 }
 
 // Host renders the site's host name under base, e.g. "a.sub.grp.<base>".
