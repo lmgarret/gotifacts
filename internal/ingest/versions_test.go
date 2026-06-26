@@ -45,6 +45,27 @@ func TestListRevisions(t *testing.T) {
 	}
 }
 
+func TestListRevisionsReportsSize(t *testing.T) {
+	p, _ := setup(t, true)
+	sp, _ := router.NewSitePath("", "demo")
+	// Each KindIndex publish writes its content verbatim to index.html, so the
+	// revision's on-disk size equals the content length.
+	publishSeq(t, p, "v1", "v22", "v333")
+
+	revs, err := p.ListRevisions(sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revs[0].Size != int64(len("v333")) {
+		t.Fatalf("current revision size = %d, want %d", revs[0].Size, len("v333"))
+	}
+	for _, r := range revs[1:] {
+		if r.Size == 0 {
+			t.Fatalf("archived revision %s reported zero size", r.ID)
+		}
+	}
+}
+
 func TestRevisionDirRejectsTraversalAndUnknown(t *testing.T) {
 	p, cfg := setup(t, true)
 	sp, _ := router.NewSitePath("", "demo")

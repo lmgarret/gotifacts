@@ -56,6 +56,38 @@ func TestSiteUpsertAndGet(t *testing.T) {
 	}
 }
 
+func TestSiteSizePersistAndSet(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+
+	s, err := st.UpsertSite(ctx, "claude", "app", SiteInput{Title: "App", Size: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Size != 4096 {
+		t.Fatalf("size not persisted on upsert: %d", s.Size)
+	}
+
+	got, err := st.GetSite(ctx, "claude", "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Size != 4096 {
+		t.Fatalf("size not loaded on get: %d", got.Size)
+	}
+
+	if err := st.SetSiteSize(ctx, "claude", "app", 8192); err != nil {
+		t.Fatalf("SetSiteSize: %v", err)
+	}
+	got, err = st.GetSite(ctx, "claude", "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Size != 8192 {
+		t.Fatalf("SetSiteSize did not update: %d", got.Size)
+	}
+}
+
 func TestSiteDeleteAndNotFound(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)

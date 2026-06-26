@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Site } from "../api";
 import { siteURL } from "../sitehost";
+import { formatSize } from "../format";
 import { Favicon } from "./Favicon";
 
 interface Props {
@@ -9,17 +10,19 @@ interface Props {
   onSelect: (s: Site) => void;
 }
 
-type SortKey = "title" | "slug" | "group" | "date" | "updated";
+type SortKey = "title" | "slug" | "group" | "date" | "updated" | "size";
 type Dir = "asc" | "desc";
 
-// Default sort direction per column: text sorts ascending, dates descending
-// (newest first), matching what a reader usually wants on first click.
+// Default sort direction per column: text sorts ascending, dates and size
+// descending (largest/newest first), matching what a reader usually wants on
+// first click.
 const DEFAULT_DIR: Record<SortKey, Dir> = {
   title: "asc",
   slug: "asc",
   group: "asc",
   date: "desc",
   updated: "desc",
+  size: "desc",
 };
 
 function siteTitle(s: Site): string {
@@ -40,6 +43,8 @@ function compare(a: Site, b: Site, key: SortKey): number {
       return (a.date || "").localeCompare(b.date || "");
     case "updated":
       return a.updated_at.localeCompare(b.updated_at);
+    case "size":
+      return (a.size ?? 0) - (b.size ?? 0);
   }
 }
 
@@ -102,6 +107,7 @@ export function SitesTable({ sites, base, onSelect }: Props) {
             {header("slug", "Slug")}
             {header("date", "Date")}
             {header("updated", "Updated")}
+            {header("size", "Size")}
             <th className="col-tags">Tags</th>
           </tr>
         </thead>
@@ -128,6 +134,7 @@ export function SitesTable({ sites, base, onSelect }: Props) {
                 <td className="col-slug">{s.slug}</td>
                 <td className="col-date">{fmtDate(s.date)}</td>
                 <td className="col-date">{fmtDate(s.updated_at)}</td>
+                <td className="col-size">{formatSize(s.size)}</td>
                 <td className="col-tags">
                   <div className="meta">
                     {s.tags?.map((t) => (

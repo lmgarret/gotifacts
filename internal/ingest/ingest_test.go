@@ -57,6 +57,45 @@ func TestPublishSingleIndex(t *testing.T) {
 	}
 }
 
+func TestPublishStoresSize(t *testing.T) {
+	p, _, st := setupFull(t, 0, false)
+	ctx := context.Background()
+	content := "<h1>hello world</h1>"
+	if _, _, err := p.Publish(ctx, Meta{Slug: "demo"}, KindIndex, strings.NewReader(content)); err != nil {
+		t.Fatal(err)
+	}
+	site, err := st.GetSite(ctx, "", "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site.Size != int64(len(content)) {
+		t.Fatalf("stored size = %d, want %d", site.Size, len(content))
+	}
+}
+
+func TestBackfillSizes(t *testing.T) {
+	p, _, st := setupFull(t, 0, false)
+	ctx := context.Background()
+	content := "<h1>backfill me</h1>"
+	if _, _, err := p.Publish(ctx, Meta{Slug: "demo"}, KindIndex, strings.NewReader(content)); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a pre-migration row by zeroing the stored size.
+	if err := st.SetSiteSize(ctx, "", "demo", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.BackfillSizes(ctx); err != nil {
+		t.Fatalf("BackfillSizes: %v", err)
+	}
+	site, err := st.GetSite(ctx, "", "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site.Size != int64(len(content)) {
+		t.Fatalf("backfilled size = %d, want %d", site.Size, len(content))
+	}
+}
+
 func TestPublishReplaceNoVersioning(t *testing.T) {
 	p, cfg := setup(t, false)
 	ctx := context.Background()
