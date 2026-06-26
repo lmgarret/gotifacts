@@ -464,6 +464,13 @@ main {
     color: var(--muted);
 }
 
+.sites-table .col-size {
+    white-space: nowrap;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+}
+
 .sites-table .col-tags .meta {
     justify-content: flex-start;
 }

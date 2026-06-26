@@ -28,6 +28,8 @@ type Revision struct {
 	// CreatedAt is the archive time (parsed from the timestamp) or, for the
 	// current revision, the live directory's modification time.
 	CreatedAt time.Time `json:"created_at"`
+	// Size is the total on-disk size in bytes of the revision's regular files.
+	Size int64 `json:"size"`
 }
 
 // ListRevisions returns the site's revisions: the current (live) content first,
@@ -38,7 +40,8 @@ func (p *Publisher) ListRevisions(sp router.SitePath) ([]Revision, error) {
 
 	live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
 	if fi, err := os.Stat(live); err == nil && fi.IsDir() {
-		revs = append(revs, Revision{ID: CurrentRevision, Current: true, CreatedAt: fi.ModTime().UTC()})
+		size, _ := dirSize(live)
+		revs = append(revs, Revision{ID: CurrentRevision, Current: true, CreatedAt: fi.ModTime().UTC(), Size: size})
 	}
 
 	verRoot := filepath.Join(p.cfg.VersionsDir(), filepath.FromSlash(sp.Dir()))
@@ -50,9 +53,30 @@ func (p *Publisher) ListRevisions(sp router.SitePath) ([]Revision, error) {
 	for i := len(versions) - 1; i >= 0; i-- {
 		name := versions[i]
 		ts, _ := time.Parse(versionStampLayout, name)
-		revs = append(revs, Revision{ID: name, CreatedAt: ts.UTC()})
+		size, _ := dirSize(filepath.Join(verRoot, name))
+		revs = append(revs, Revision{ID: name, CreatedAt: ts.UTC(), Size: size})
 	}
 	return revs, nil
+}
+
+// dirSize returns the total size in bytes of all regular files under dir.
+func dirSize(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
 }
 
 // RevisionDir resolves a revision ID to its on-disk directory. The current
@@ -113,7 +137,8 @@ func (p *Publisher) RollbackTo(ctx context.Context, sp router.SitePath, rev stri
 	if _, err := p.store.UpsertSiteTouch(ctx, sp.Group, sp.Slug); err != nil {
 		return err
 	}
-	return nil
+	size, _ := dirSize(live)
+	return p.store.SetSiteSize(ctx, sp.Group, sp.Slug, size)
 }
 
 // copyDir recursively copies the contents of src into dst (which must already

@@ -67,6 +67,9 @@ func runServe(ctx context.Context, _ []string) error {
 	sites := httplog.Middleware(log.With("plane", "site"), slog.LevelDebug)(portal.NewSiteServer(cfg))
 
 	pub := ingest.New(cfg, st)
+	if err := pub.BackfillSizes(ctx); err != nil {
+		log.Error("backfill site sizes", "err", err)
+	}
 	go runPurgeLoop(ctx, pub, log)
 
 	dispatch := router.NewDispatch(cfg, apex, sites)

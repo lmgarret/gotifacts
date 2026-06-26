@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, type Site } from "../api";
 import { siteURL } from "../sitehost";
+import { formatSize } from "../format";
 import { FilesTab } from "./FilesTab";
 import { SiteEditModal } from "./SiteEditModal";
 
@@ -118,6 +119,8 @@ export function SitePage({ site: initial, base, isAdmin, versioningEnabled, onBa
             )}
             <dt>Updated</dt>
             <dd>{new Date(site.updated_at).toLocaleString()}</dd>
+            <dt>Size</dt>
+            <dd>{formatSize(site.size)}</dd>
           </dl>
           {site.tags?.length > 0 && (
             <div className="meta">

@@ -25,6 +25,7 @@ type Site struct {
 	Repo        string     `json:"repo,omitempty"`
 	Preview     string     `json:"preview,omitempty"`
 	Hidden      bool       `json:"hidden"`
+	Size        int64      `json:"size"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
@@ -39,6 +40,7 @@ type SiteInput struct {
 	Repo        string
 	Preview     string
 	Hidden      bool
+	Size        int64
 }
 
 // UpsertSite inserts or updates the site at (group, slug), returning the row.
@@ -50,14 +52,14 @@ func (s *Store) UpsertSite(ctx context.Context, group, slug string, in SiteInput
 	}
 	ts := now()
 	_, err = s.db.ExecContext(ctx, `
-        INSERT INTO sites (group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sites (group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(group_path, slug) DO UPDATE SET
             title=excluded.title, description=excluded.description, date=excluded.date,
             tags=excluded.tags, repo=excluded.repo, preview=excluded.preview,
-            hidden=excluded.hidden, updated_at=excluded.updated_at,
+            hidden=excluded.hidden, size=excluded.size, updated_at=excluded.updated_at,
             deleted_at=NULL`,
-		group, slug, in.Title, in.Description, in.Date, string(tags), in.Repo, in.Preview, boolInt(in.Hidden), ts, ts)
+		group, slug, in.Title, in.Description, in.Date, string(tags), in.Repo, in.Preview, boolInt(in.Hidden), in.Size, ts, ts)
 	if err != nil {
 		return nil, err
 	}
@@ -125,11 +127,19 @@ func (s *Store) UpsertSiteTouch(ctx context.Context, group, slug string) (*Site,
 	return s.GetSite(ctx, group, slug)
 }
 
+// SetSiteSize updates the stored content size (in bytes) for an existing site.
+// Used by the publish/rollback paths and the startup backfill, which compute the
+// size from the live directory on disk.
+func (s *Store) SetSiteSize(ctx context.Context, group, slug string, size int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sites SET size=? WHERE group_path=? AND slug=?`, size, group, slug)
+	return err
+}
+
 // GetSite returns the site at (group, slug) or ErrNotFound.
 // Soft-deleted sites are not returned; use ListDeletedBefore for purge access.
 func (s *Store) GetSite(ctx context.Context, group, slug string) (*Site, error) {
 	row := s.db.QueryRowContext(ctx, `
-        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at
         FROM sites WHERE group_path=? AND slug=? AND deleted_at IS NULL`, group, slug)
 	return scanSite(row)
 }
@@ -169,7 +179,7 @@ func (s *Store) DeleteSite(ctx context.Context, group, slug string) error {
 // Used by the admin trash view.
 func (s *Store) ListDeletedSites(ctx context.Context) ([]Site, error) {
 	rows, err := s.db.QueryContext(ctx, `
-        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at
         FROM sites WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
 	if err != nil {
 		return nil, err
@@ -223,7 +233,7 @@ func (s *Store) PurgeDeletedSite(ctx context.Context, group, slug string) error 
 // before the given cutoff. Used by the background purge job.
 func (s *Store) ListDeletedBefore(ctx context.Context, cutoff time.Time) ([]Site, error) {
 	rows, err := s.db.QueryContext(ctx, `
-        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at
         FROM sites WHERE deleted_at IS NOT NULL AND deleted_at <= ?`,
 		cutoff.UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -276,7 +286,7 @@ func (s *Store) ListSites(ctx context.Context, f ListFilter) ([]Site, error) {
 		clauses = append(clauses, `EXISTS (SELECT 1 FROM json_each(sites.tags) WHERE json_each.value = ?)`)
 		args = append(args, f.Tag)
 	}
-	q := `SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, created_at, updated_at, deleted_at FROM sites`
+	q := `SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at FROM sites`
 	if len(clauses) > 0 {
 		q += " WHERE " + strings.Join(clauses, " AND ")
 	}
@@ -321,7 +331,7 @@ func scanSite(row scanner) (*Site, error) {
 		deletedAt *string
 	)
 	err := row.Scan(&s.ID, &s.Group, &s.Slug, &s.Title, &s.Description, &s.Date,
-		&tagsJSON, &s.Repo, &s.Preview, &hidden, &created, &updated, &deletedAt)
+		&tagsJSON, &s.Repo, &s.Preview, &hidden, &s.Size, &created, &updated, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
