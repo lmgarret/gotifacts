@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type FileNode, type Revision, type Site } from "../api";
+import { formatSize } from "../format";
 import { FileTree } from "./FileTree";
 
 interface Props {
@@ -98,7 +99,7 @@ export function FilesTab({ site, isAdmin, versioningEnabled, onRolledBack }: Pro
         >
           {revisions.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.current ? "Current" : "Archived"} — {fmt(r.created_at)}
+              {r.current ? "Current" : "Archived"} — {fmt(r.created_at)} — {formatSize(r.size)}
               {r.current ? "" : ` (${r.id})`}
             </option>
           ))}

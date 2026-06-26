@@ -118,6 +118,7 @@ func (p *Publisher) Publish(ctx context.Context, meta Meta, kind Kind, r io.Read
 		return nil, nil, err
 	}
 
+	size, _ := dirSize(live)
 	site, err := p.store.UpsertSite(ctx, sp.Group, sp.Slug, store.SiteInput{
 		Title:       meta.Title,
 		Description: meta.Description,
@@ -126,6 +127,7 @@ func (p *Publisher) Publish(ctx context.Context, meta Meta, kind Kind, r io.Read
 		Repo:        meta.Repo,
 		Preview:     meta.Preview,
 		Hidden:      meta.Hidden,
+		Size:        size,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("registry upsert: %w", err)
@@ -294,6 +296,34 @@ func (p *Publisher) PurgeDeleted(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// BackfillSizes recomputes and stores the content size for every live site by
+// walking its live directory. It is run once at startup so that sites published
+// before the size column existed report an accurate size.
+func (p *Publisher) BackfillSizes(ctx context.Context) error {
+	sites, err := p.store.ListSites(ctx, store.ListFilter{IncludeHide: true})
+	if err != nil {
+		return err
+	}
+	for _, site := range sites {
+		sp, err := router.NewSitePath(site.Group, site.Slug)
+		if err != nil {
+			continue
+		}
+		live := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.Dir()))
+		size, err := dirSize(live)
+		if err != nil {
+			continue
+		}
+		if size == site.Size {
+			continue
+		}
+		if err := p.store.SetSiteSize(ctx, site.Group, site.Slug, size); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Rollback restores the most recent archived version of a site, swapping the
 // current live content into the version history.
 func (p *Publisher) Rollback(ctx context.Context, sp router.SitePath) error {
@@ -325,7 +355,8 @@ func (p *Publisher) Rollback(ctx context.Context, sp router.SitePath) error {
 	if _, err := p.store.UpsertSiteTouch(ctx, sp.Group, sp.Slug); err != nil {
 		return err
 	}
-	return nil
+	size, _ := dirSize(live)
+	return p.store.SetSiteSize(ctx, sp.Group, sp.Slug, size)
 }
 
 // readerAtSize adapts a content stream into the io.ReaderAt + size that

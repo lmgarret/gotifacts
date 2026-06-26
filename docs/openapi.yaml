@@ -590,13 +590,14 @@ components:
         repo: { type: string }
         preview: { type: string, description: "Optional preview image URL used by the portal instead of a live iframe." }
         hidden: { type: boolean }
+        size: { type: integer, format: int64, description: "Total on-disk size in bytes of the current revision's files." }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         deleted_at:
           type: string
           format: date-time
           description: "Set when the site is soft-deleted; absent for live sites."
-      required: [id, group, slug, title, hidden, created_at, updated_at]
+      required: [id, group, slug, title, hidden, size, created_at, updated_at]
 
     SiteMeta:
       type: object
@@ -665,7 +666,8 @@ components:
           description: "`current` for the live content, otherwise the archive timestamp."
         current: { type: boolean, description: True for the live content. }
         created_at: { type: string, format: date-time }
-      required: [id, current, created_at]
+        size: { type: integer, format: int64, description: Total on-disk size in bytes of the revision's files. }
+      required: [id, current, created_at, size]
 
     RevisionsResponse:
       type: object

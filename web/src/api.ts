@@ -21,6 +21,7 @@ export interface Site {
   repo?: string;
   preview?: string;
   hidden: boolean;
+  size: number;
   created_at: string;
   updated_at: string;
   deleted_at?: string;
@@ -53,6 +54,7 @@ export interface Revision {
   id: string;
   current: boolean;
   created_at: string;
+  size: number;
 }
 
 // FileNode is a node in a revision's file tree. Directories carry children;
