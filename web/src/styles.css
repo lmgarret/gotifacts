@@ -475,6 +475,30 @@ main {
     justify-content: flex-start;
 }
 
+.sites-table .col-link {
+    width: 1.5rem;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.sites-table .site-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    text-decoration: none;
+    border-radius: var(--radius);
+    padding: 0.1rem 0.3rem;
+    transition: color 0.15s, background 0.15s;
+}
+
+.sites-table .site-link:hover,
+.sites-table .site-link:focus-visible {
+    color: var(--accent);
+    background: var(--bg);
+    outline: none;
+}
+
 /* Layout toggle */
 .layout-toggle {
     display: inline-flex;
