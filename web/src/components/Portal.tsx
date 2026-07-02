@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Me, type Site, type TreeNode } from "../api";
 import { GroupSection } from "./GroupSection";
 import { SitesTable } from "./SitesTable";
+import { SitesSkeleton } from "./SitesSkeleton";
 import { SiteCreateModal } from "./SiteCreateModal";
 
 interface Props {
@@ -25,6 +26,9 @@ export function Portal({ me, onOpenSite }: Props) {
   const [allTags, setAllTags] = useState<string[]>([]);
   const [allGroups, setAllGroups] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Distinguishes the first load (show skeletons) from later filter refetches,
+  // which keep the current content in place rather than flashing placeholders.
+  const [loaded, setLoaded] = useState(false);
 
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
@@ -57,7 +61,8 @@ export function Portal({ me, onOpenSite }: Props) {
         }
         setError(null);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoaded(true));
   }, [q, tag, group, sort, showHidden, me.is_admin]);
 
   const groups = useMemo(
@@ -175,15 +180,25 @@ export function Portal({ me, onOpenSite }: Props) {
       </div>
 
       {error && <p className="error">{error}</p>}
-      {isEmpty && !error && <p className="muted empty">No sites published yet.</p>}
 
-      {tree && layout === "card" && (
+      {!loaded && !error && (
+        <>
+          <span className="sr-only" role="status">
+            Loading sites…
+          </span>
+          <SitesSkeleton layout={layout} />
+        </>
+      )}
+
+      {loaded && isEmpty && !error && <p className="muted empty">No sites published yet.</p>}
+
+      {loaded && tree && layout === "card" && (
         <div className="tree">
           <GroupSection node={tree} base={me.base_domain} depth={0} onSelect={onOpenSite} />
         </div>
       )}
 
-      {layout === "table" && sites.length > 0 && (
+      {loaded && layout === "table" && sites.length > 0 && (
         <SitesTable sites={sites} base={me.base_domain} onSelect={onOpenSite} />
       )}
 
