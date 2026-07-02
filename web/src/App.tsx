@@ -5,10 +5,9 @@ import { SitePage } from "./components/SitePage";
 import { KeysView } from "./components/KeysView";
 import { ConnectionsView } from "./components/ConnectionsView";
 import { TrashView } from "./components/TrashView";
+import { AccountMenu, type View } from "./components/AccountMenu";
 import logoLight from "./assets/logo-light.svg";
 import logoDark from "./assets/logo-dark.svg";
-
-type View = "portal" | "keys" | "connections" | "trash";
 
 // Light/dark wordmark logos, matching the docs site. CSS swaps which one is
 // shown based on the active color scheme.
@@ -65,39 +64,18 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand" onClick={() => go("portal")} role="button" tabIndex={0}>
+        <div
+          className="brand"
+          onClick={() => go("portal")}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && go("portal")}
+          role="button"
+          tabIndex={0}
+          title="Home"
+          aria-label="Home"
+        >
           <Logo />
         </div>
-        <nav>
-          <button className={view === "portal" ? "active" : ""} onClick={() => go("portal")}>
-            Portal
-          </button>
-          {me.is_admin && (
-            <button className={view === "keys" ? "active" : ""} onClick={() => go("keys")}>
-              API Keys
-            </button>
-          )}
-          {me.is_admin && me.mcp_enabled && (
-            <button
-              className={view === "connections" ? "active" : ""}
-              onClick={() => go("connections")}
-            >
-              Connections
-            </button>
-          )}
-          {me.is_admin && (
-            <button
-              className={view === "trash" ? "active" : ""}
-              onClick={() => go("trash")}
-            >
-              Trash{trashCount > 0 && <span className="nav-badge">{trashCount}</span>}
-            </button>
-          )}
-        </nav>
-        <div className="who">
-          {me.user}
-          {me.is_admin && <span className="badge">admin</span>}
-        </div>
+        <AccountMenu me={me} view={view} trashCount={trashCount} onNavigate={go} />
       </header>
       <main>
         {view === "portal" && !openSite && <Portal me={me} onOpenSite={setOpenSite} />}
