@@ -109,6 +109,7 @@ export function SitesTable({ sites, base, onSelect }: Props) {
             {header("updated", "Updated")}
             {header("size", "Size")}
             <th className="col-tags">Tags</th>
+            <th className="col-link" aria-label="Website" />
           </tr>
         </thead>
         <tbody>
@@ -144,6 +145,32 @@ export function SitesTable({ sites, base, onSelect }: Props) {
                     ))}
                     {s.hidden && <span className="tag warn">hidden</span>}
                   </div>
+                </td>
+                <td className="col-link">
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="site-link"
+                    aria-label={`Open ${title} in a new tab`}
+                    title="Open website"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <svg
+                      className="ext-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                  </a>
                 </td>
               </tr>
             );
