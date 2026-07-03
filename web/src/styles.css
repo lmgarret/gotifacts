@@ -185,22 +185,91 @@ a {
     height: 3rem;
 }
 
-.topbar nav {
-    display: flex;
-    gap: 0.4rem;
-}
-
-.topbar nav button.active {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
 .topbar .who {
     margin-left: auto;
     color: var(--muted);
     display: flex;
     align-items: center;
     gap: 0.4rem;
+}
+
+/* Account menu: user identity chip on the right that opens the admin views
+   (API Keys, Connections, Trash). Replaces the old row of top-bar tabs. */
+.account {
+    margin-left: auto;
+    position: relative;
+}
+
+.account-trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--muted);
+    padding: 0.35rem 0.6rem;
+}
+
+.account-trigger:hover,
+.account-trigger.open {
+    border-color: var(--accent);
+}
+
+.account-user {
+    color: var(--text);
+}
+
+.account-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--danger);
+}
+
+.account-caret {
+    font-size: 0.7rem;
+    line-height: 1;
+    transition: transform 0.15s;
+}
+
+.account-trigger.open .account-caret {
+    transform: rotate(180deg);
+}
+
+.account-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.4rem);
+    z-index: 20;
+    min-width: 12rem;
+    margin: 0;
+    padding: 0.3rem;
+    list-style: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+.account-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    width: 100%;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+    text-align: left;
+}
+
+.account-item:hover {
+    background: var(--bg);
+    border-color: transparent;
+}
+
+.account-item.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
 }
 
 .badge {

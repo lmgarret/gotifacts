@@ -204,6 +204,10 @@ export const api = {
     return request<SitesResponse>(`/api/sites${suffix}`);
   },
 
+  // getSite fetches a single site's metadata by path; used to resolve /s/ deep
+  // links on a cold load. 404s for unknown sites (and hidden ones as a viewer).
+  getSite: (group: string, slug: string) => request<Site>(`/api/sites/${sitePath(group, slug)}`),
+
   patchSite: (group: string, slug: string, body: Partial<Site>) =>
     request<Site>(`/api/sites/${sitePath(group, slug)}`, {
       method: "PATCH",

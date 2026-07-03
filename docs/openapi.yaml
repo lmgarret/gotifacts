@@ -96,6 +96,23 @@ paths:
   /api/sites/{path}:
     parameters:
       - $ref: "#/components/parameters/SitePath"
+    get:
+      tags: [Management]
+      summary: Get a site's metadata
+      description: |
+        Returns a single site's registry metadata. Available to any
+        authenticated user; hidden sites are visible only to admins (they
+        return `404` otherwise).
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [Management]
       summary: Update site metadata (admin)
