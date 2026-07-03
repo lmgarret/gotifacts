@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Me } from "../api";
-
-export type View = "portal" | "keys" | "connections" | "trash";
+import type { View } from "../router";
 
 interface Item {
   view: View;

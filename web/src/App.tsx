@@ -5,7 +5,8 @@ import { SitePage } from "./components/SitePage";
 import { KeysView } from "./components/KeysView";
 import { ConnectionsView } from "./components/ConnectionsView";
 import { TrashView } from "./components/TrashView";
-import { AccountMenu, type View } from "./components/AccountMenu";
+import { AccountMenu } from "./components/AccountMenu";
+import { useView, type View } from "./router";
 import logoLight from "./assets/logo-light.svg";
 import logoDark from "./assets/logo-dark.svg";
 
@@ -23,15 +24,15 @@ function Logo() {
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<View>("portal");
+  const { view, navigate } = useView();
   const [trashCount, setTrashCount] = useState(0);
   // When set (within the portal view), the dedicated per-site page is shown.
   const [openSite, setOpenSite] = useState<Site | null>(null);
 
-  // go switches the top-level view and leaves any open site page.
+  // go switches the top-level view (updating the URL) and leaves any open site.
   const go = (v: View) => {
     setOpenSite(null);
-    setView(v);
+    navigate(v);
   };
 
   useEffect(() => {
@@ -40,6 +41,18 @@ export function App() {
       .then(setMe)
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  // Deep links to a settings view are only valid for users who can see that
+  // view. Coerce anything else back to the portal, correcting the URL in place
+  // so a shared/bookmarked link never lands on a blank screen.
+  useEffect(() => {
+    if (!me) return;
+    const allowed =
+      view === "portal" ||
+      (me.is_admin && (view === "keys" || view === "trash")) ||
+      (me.is_admin && me.mcp_enabled && view === "connections");
+    if (!allowed) navigate("portal", { replace: true });
+  }, [me, view, navigate]);
 
   if (error) {
     return (
