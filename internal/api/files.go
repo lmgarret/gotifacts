@@ -28,14 +28,20 @@ type FileNode struct {
 }
 
 // handleSiteGet is the viewer-plane dispatcher for GET /api/sites/{rest...}.
-// It serves the revision-browsing endpoints, keyed off a "revisions" segment:
+// It serves the single-site metadata lookup and the revision-browsing
+// endpoints, keyed off a "revisions" segment:
 //
+//	{group/slug}                               -> site metadata
 //	{group/slug}/revisions                     -> list revisions
 //	{group/slug}/revisions/{rev}/files         -> file tree
 //	{group/slug}/revisions/{rev}/file?path=... -> download one file
 //	{group/slug}/revisions/{rev}/archive       -> download revision as zip
 func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
 	segs := strings.Split(rest, "/")
 
 	idx := -1
@@ -45,13 +51,22 @@ func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request, p *auth.P
 			break
 		}
 	}
-	// Need at least one segment (the slug) before "revisions".
-	if idx < 1 {
-		http.NotFound(w, r)
-		return
+
+	// With no "revisions" segment the whole path identifies a site and we return
+	// its metadata; otherwise everything before "revisions" is the site path and
+	// everything after is the revision sub-path (which needs a preceding slug).
+	meta := idx == -1
+	var siteSegs, sub []string
+	if meta {
+		siteSegs = segs
+	} else {
+		if idx < 1 {
+			http.NotFound(w, r)
+			return
+		}
+		siteSegs = segs[:idx]
+		sub = segs[idx+1:]
 	}
-	siteSegs := segs[:idx]
-	sub := segs[idx+1:]
 
 	slug := siteSegs[len(siteSegs)-1]
 	group := strings.Join(siteSegs[:len(siteSegs)-1], "/")
@@ -78,6 +93,8 @@ func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request, p *auth.P
 	}
 
 	switch {
+	case meta:
+		writeJSON(w, http.StatusOK, site)
 	case len(sub) == 0:
 		s.listRevisions(w, r, sp)
 	case len(sub) == 2 && sub[1] == "files":

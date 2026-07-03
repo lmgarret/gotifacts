@@ -63,6 +63,41 @@ func doGet(t *testing.T, ts *httptest.Server, path, user string) *http.Response 
 	return resp
 }
 
+func TestSiteMetadataGet(t *testing.T) {
+	srv, ts := filesTestServer(t)
+
+	// Any authenticated viewer can read a site's metadata (backs /s/ deep links).
+	resp := doGet(t, ts, "/api/sites/demo", "bob")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get demo: status %d", resp.StatusCode)
+	}
+	var site store.Site
+	if err := json.NewDecoder(resp.Body).Decode(&site); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if site.Slug != "demo" || site.Title != "Demo" {
+		t.Fatalf("unexpected site: %+v", site)
+	}
+
+	// Unknown sites 404.
+	if resp := doGet(t, ts, "/api/sites/ghost", "bob"); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("get ghost: status %d", resp.StatusCode)
+	}
+
+	// Hidden sites are visible to admins but not to plain viewers.
+	hidden := true
+	if _, err := srv.store.PatchSite(context.Background(), "", "demo", store.SitePatch{Hidden: &hidden}); err != nil {
+		t.Fatal(err)
+	}
+	if resp := doGet(t, ts, "/api/sites/demo", "bob"); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("hidden demo as viewer: status %d", resp.StatusCode)
+	}
+	if resp := doGet(t, ts, "/api/sites/demo", "alice"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("hidden demo as admin: status %d", resp.StatusCode)
+	}
+}
+
 func TestRevisionsAndFilesAsViewer(t *testing.T) {
 	_, ts := filesTestServer(t)
 

@@ -30,7 +30,7 @@ func TestSPAServesShellForClientRoutes(t *testing.T) {
 	// Client-side routes (the portal's settings deep links) fall back to the
 	// shell so a full-page load of e.g. /settings/api-keys boots the SPA and the
 	// client router resolves the view.
-	for _, p := range []string{"/", "/settings/api-keys", "/settings/connections", "/settings/trash"} {
+	for _, p := range []string{"/", "/settings/api-keys", "/settings/connections", "/settings/trash", "/s/decks/pr-6"} {
 		body, code := reqSPA(t, spa, p)
 		if code != http.StatusOK || body != "<!doctype html>SHELL" {
 			t.Fatalf("route %s: code=%d body=%q", p, code, body)

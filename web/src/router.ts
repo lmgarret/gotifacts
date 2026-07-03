@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 
 // Top-level views, each with a canonical URL. Portal is the app root; the
-// admin views live under /settings/. The Go SPA handler
-// (internal/portal/spa.go) falls back to index.html for unknown paths, so
-// these deep-link and survive a full page reload.
+// admin views live under /settings/. Individual sites deep-link under /s/. The
+// Go SPA handler (internal/portal/spa.go) falls back to index.html for unknown
+// paths, so all of these survive a full page reload.
 export type View = "portal" | "keys" | "connections" | "trash";
+
+// SiteRef identifies a site by its path (group may be empty for a flat site).
+export interface SiteRef {
+  group: string;
+  slug: string;
+}
+
+// A Route is either a top-level view or, when site is set, a site's page. The
+// site page conceptually sits over the portal, so its view stays "portal".
+export interface Route {
+  view: View;
+  site: SiteRef | null;
+}
 
 export const VIEW_PATH: Record<View, string> = {
   portal: "/",
@@ -19,47 +32,84 @@ const PATH_VIEW: Record<string, View> = {
   "/settings/trash": "trash",
 };
 
-const TITLE: Record<View, string> = {
+const SITE_PREFIX = "/s/";
+
+const VIEW_TITLE: Record<View, string> = {
   portal: "gotifacts",
   keys: "API keys · gotifacts",
   connections: "Connections · gotifacts",
   trash: "Trash · gotifacts",
 };
 
-// viewFromPath resolves a pathname to a view, defaulting to the portal for the
-// root and any unrecognized path.
-export function viewFromPath(pathname: string): View {
-  const clean = pathname.replace(/\/+$/, "") || "/";
-  return PATH_VIEW[clean] ?? "portal";
+// sitePathTail joins a SiteRef into the group/slug tail used under /s/.
+function sitePathTail(ref: SiteRef): string {
+  return ref.group ? `${ref.group}/${ref.slug}` : ref.slug;
 }
 
-// useView keeps a View in sync with the browser URL. navigate() pushes (or, with
-// { replace: true }, replaces) a history entry; Back/Forward is handled via
-// popstate. The page title tracks the active view.
-export function useView(): {
-  view: View;
-  navigate: (v: View, opts?: { replace?: boolean }) => void;
+// routeToPath renders a Route to its canonical URL.
+export function routeToPath(r: Route): string {
+  if (r.site) return SITE_PREFIX + sitePathTail(r.site);
+  return VIEW_PATH[r.view];
+}
+
+// routeFromPath resolves a pathname to a Route, defaulting to the portal for
+// the root and any unrecognized path.
+export function routeFromPath(pathname: string): Route {
+  const clean = pathname.replace(/\/+$/, "") || "/";
+  if (clean.startsWith(SITE_PREFIX)) {
+    const segs = clean.slice(SITE_PREFIX.length).split("/").filter(Boolean);
+    if (segs.length >= 1) {
+      const slug = segs[segs.length - 1];
+      const group = segs.slice(0, -1).join("/");
+      return { view: "portal", site: { group, slug } };
+    }
+    return { view: "portal", site: null };
+  }
+  return { view: PATH_VIEW[clean] ?? "portal", site: null };
+}
+
+function titleFor(r: Route): string {
+  return r.site ? `${r.site.slug} · gotifacts` : VIEW_TITLE[r.view];
+}
+
+// useRoute keeps a Route in sync with the browser URL. navigate() switches to a
+// top-level view; openSite() opens a site page. Both push a history entry (or
+// replace it with { replace: true }); Back/Forward is handled via popstate, and
+// the page title tracks the active route.
+export function useRoute(): {
+  route: Route;
+  navigate: (view: View, opts?: { replace?: boolean }) => void;
+  openSite: (site: SiteRef, opts?: { replace?: boolean }) => void;
 } {
-  const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
+  const [route, setRoute] = useState<Route>(() => routeFromPath(window.location.pathname));
 
   useEffect(() => {
-    const onPop = () => setView(viewFromPath(window.location.pathname));
+    const onPop = () => setRoute(routeFromPath(window.location.pathname));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   useEffect(() => {
-    document.title = TITLE[view];
-  }, [view]);
+    document.title = titleFor(route);
+  }, [route]);
 
-  const navigate = useCallback((v: View, opts?: { replace?: boolean }) => {
-    const path = VIEW_PATH[v];
+  const push = useCallback((next: Route, opts?: { replace?: boolean }) => {
+    const path = routeToPath(next);
     if (window.location.pathname !== path) {
       if (opts?.replace) window.history.replaceState(null, "", path);
       else window.history.pushState(null, "", path);
     }
-    setView(v);
+    setRoute(next);
   }, []);
 
-  return { view, navigate };
+  const navigate = useCallback(
+    (view: View, opts?: { replace?: boolean }) => push({ view, site: null }, opts),
+    [push],
+  );
+  const openSite = useCallback(
+    (site: SiteRef, opts?: { replace?: boolean }) => push({ view: "portal", site }, opts),
+    [push],
+  );
+
+  return { route, navigate, openSite };
 }
