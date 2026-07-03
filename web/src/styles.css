@@ -594,6 +594,92 @@ main {
     padding: 3rem 0;
 }
 
+/* Skeleton loaders: shimmering placeholders shown while the site list loads. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@keyframes sk-shimmer {
+    from {
+        background-position: 200% 0;
+    }
+    to {
+        background-position: -200% 0;
+    }
+}
+
+.sk {
+    background: linear-gradient(
+        90deg,
+        var(--border) 25%,
+        var(--surface) 50%,
+        var(--border) 75%
+    );
+    background-size: 200% 100%;
+    animation: sk-shimmer 1.4s ease-in-out infinite;
+    border-radius: 6px;
+}
+
+.sk-line {
+    display: block;
+    height: 0.7rem;
+    margin-bottom: 0.5rem;
+}
+
+.sk-line:last-child {
+    margin-bottom: 0;
+}
+
+.sk-title {
+    height: 1rem;
+    margin-bottom: 0.6rem;
+}
+
+.sk-sub {
+    height: 0.6rem;
+    margin-top: 0.35rem;
+    margin-bottom: 0;
+}
+
+.sk-favicon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+}
+
+.sk-tag {
+    display: inline-block;
+    width: 2.5rem;
+    height: 0.9rem;
+    border-radius: 999px;
+    margin-right: 0.3rem;
+}
+
+/* The card thumbnail area doubles as its own placeholder block. */
+.skeleton-card .thumb.sk {
+    border-radius: 0;
+}
+
+.skeleton-row td {
+    /* Keep placeholder rows the same height as real ones. */
+    height: 3.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sk {
+        animation: none;
+    }
+}
+
 /* Modal */
 .modal-backdrop {
     position: fixed;
