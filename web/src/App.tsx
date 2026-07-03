@@ -31,6 +31,9 @@ export function App() {
   // The resolved Site backing a /s/ deep link. When the user opens a site from
   // the portal we already hold the object; on a cold load we fetch it below.
   const [site, setSite] = useState<Site | null>(null);
+  // Set (keyed to the failing site path) when a /s/ deep link can't be
+  // resolved, so we can show a "not found" notice instead of bouncing away.
+  const [siteErr, setSiteErr] = useState<{ group: string; slug: string } | null>(null);
 
   // openSiteFromPortal navigates to a site's page, stashing the object the
   // portal already has so SitePage renders without a round-trip.
@@ -48,19 +51,27 @@ export function App() {
 
   // Resolve the site behind a /s/ route. Skip the fetch when we already hold the
   // matching object (opened from the portal); on a cold load or an unknown site
-  // fetch it, falling back to the portal if it can't be seen.
+  // fetch it. A failure records the error against this path so the render shows
+  // a "not found" notice rather than silently redirecting.
   useEffect(() => {
     if (!siteRef) return;
     if (site && site.group === siteRef.group && site.slug === siteRef.slug) return;
     let cancelled = false;
     api
       .getSite(siteRef.group, siteRef.slug)
-      .then((s) => !cancelled && setSite(s))
-      .catch(() => !cancelled && navigate("portal", { replace: true }));
+      .then((s) => {
+        if (!cancelled) {
+          setSite(s);
+          setSiteErr(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSiteErr({ group: siteRef.group, slug: siteRef.slug });
+      });
     return () => {
       cancelled = true;
     };
-  }, [siteRef, site, navigate]);
+  }, [siteRef, site]);
 
   // Deep links to a settings view are only valid for users who can see that
   // view. Coerce anything else back to the portal, correcting the URL in place
@@ -125,6 +136,16 @@ export function App() {
               onBack={() => navigate("portal")}
               onGone={() => navigate("portal", { replace: true })}
             />
+          ) : siteErr && siteErr.group === siteRef.group && siteErr.slug === siteRef.slug ? (
+            <div className="centered">
+              <p className="error">Site not found</p>
+              <p className="muted">
+                No site is published at{" "}
+                <code>{siteRef.group ? `${siteRef.group}/${siteRef.slug}` : siteRef.slug}</code>, or
+                it is hidden from your account.
+              </p>
+              <button onClick={() => navigate("portal")}>← Back to portal</button>
+            </div>
           ) : (
             <p className="muted">Loading…</p>
           )
