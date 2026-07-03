@@ -13,10 +13,13 @@ export interface SiteRef {
 }
 
 // A Route is either a top-level view or, when site is set, a site's page. The
-// site page conceptually sits over the portal, so its view stays "portal".
+// site page conceptually sits over the portal, so its view stays "portal". sub
+// holds the per-site subpath (e.g. the active tab) — the segments after the
+// reserved "-" boundary under /s/; empty means the site's default page.
 export interface Route {
   view: View;
   site: SiteRef | null;
+  sub: string[];
 }
 
 export const VIEW_PATH: Record<View, string> = {
@@ -33,6 +36,11 @@ const PATH_VIEW: Record<string, View> = {
 };
 
 const SITE_PREFIX = "/s/";
+// Reserved segment separating a site's identity path from its per-site subpath.
+// A group/slug label can never be "-" (labels must start and end alphanumeric),
+// so this boundary can never collide with a site or group name. Mirrors the
+// GitLab "/-/" convention.
+const SITE_SUB_SEP = "-";
 
 const VIEW_TITLE: Record<View, string> = {
   portal: "gotifacts",
@@ -48,24 +56,33 @@ function sitePathTail(ref: SiteRef): string {
 
 // routeToPath renders a Route to its canonical URL.
 export function routeToPath(r: Route): string {
-  if (r.site) return SITE_PREFIX + sitePathTail(r.site);
+  if (r.site) {
+    let p = SITE_PREFIX + sitePathTail(r.site);
+    if (r.sub.length > 0) p += `/${SITE_SUB_SEP}/${r.sub.join("/")}`;
+    return p;
+  }
   return VIEW_PATH[r.view];
 }
 
 // routeFromPath resolves a pathname to a Route, defaulting to the portal for
-// the root and any unrecognized path.
+// the root and any unrecognized path. Under /s/, the identity path (group +
+// slug) is everything before the reserved "-" segment; anything after it is the
+// per-site subpath.
 export function routeFromPath(pathname: string): Route {
   const clean = pathname.replace(/\/+$/, "") || "/";
   if (clean.startsWith(SITE_PREFIX)) {
     const segs = clean.slice(SITE_PREFIX.length).split("/").filter(Boolean);
-    if (segs.length >= 1) {
-      const slug = segs[segs.length - 1];
-      const group = segs.slice(0, -1).join("/");
-      return { view: "portal", site: { group, slug } };
+    const sep = segs.indexOf(SITE_SUB_SEP);
+    const idSegs = sep === -1 ? segs : segs.slice(0, sep);
+    const sub = sep === -1 ? [] : segs.slice(sep + 1);
+    if (idSegs.length >= 1) {
+      const slug = idSegs[idSegs.length - 1];
+      const group = idSegs.slice(0, -1).join("/");
+      return { view: "portal", site: { group, slug }, sub };
     }
-    return { view: "portal", site: null };
+    return { view: "portal", site: null, sub: [] };
   }
-  return { view: PATH_VIEW[clean] ?? "portal", site: null };
+  return { view: PATH_VIEW[clean] ?? "portal", site: null, sub: [] };
 }
 
 function titleFor(r: Route): string {
@@ -79,7 +96,7 @@ function titleFor(r: Route): string {
 export function useRoute(): {
   route: Route;
   navigate: (view: View, opts?: { replace?: boolean }) => void;
-  openSite: (site: SiteRef, opts?: { replace?: boolean }) => void;
+  openSite: (site: SiteRef, opts?: { sub?: string[]; replace?: boolean }) => void;
 } {
   const [route, setRoute] = useState<Route>(() => routeFromPath(window.location.pathname));
 
@@ -103,11 +120,12 @@ export function useRoute(): {
   }, []);
 
   const navigate = useCallback(
-    (view: View, opts?: { replace?: boolean }) => push({ view, site: null }, opts),
+    (view: View, opts?: { replace?: boolean }) => push({ view, site: null, sub: [] }, opts),
     [push],
   );
   const openSite = useCallback(
-    (site: SiteRef, opts?: { replace?: boolean }) => push({ view: "portal", site }, opts),
+    (site: SiteRef, opts?: { sub?: string[]; replace?: boolean }) =>
+      push({ view: "portal", site, sub: opts?.sub ?? [] }, opts),
     [push],
   );
 

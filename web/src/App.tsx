@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Me, type Site } from "./api";
 import { Portal } from "./components/Portal";
-import { SitePage } from "./components/SitePage";
+import { SitePage, type Tab } from "./components/SitePage";
 import { KeysView } from "./components/KeysView";
 import { ConnectionsView } from "./components/ConnectionsView";
 import { TrashView } from "./components/TrashView";
@@ -115,6 +115,10 @@ export function App() {
           site && site.group === siteRef.group && site.slug === siteRef.slug ? (
             <SitePage
               site={site}
+              tab={route.sub[0] === "files" ? "files" : "overview"}
+              onTabChange={(t: Tab) =>
+                openSite(siteRef, { sub: t === "overview" ? [] : [t] })
+              }
               base={me.base_domain}
               isAdmin={me.is_admin}
               versioningEnabled={me.versioning_enabled ?? false}

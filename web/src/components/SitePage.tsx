@@ -5,8 +5,14 @@ import { formatSize } from "../format";
 import { FilesTab } from "./FilesTab";
 import { SiteEditModal } from "./SiteEditModal";
 
+export type Tab = "overview" | "files";
+
 interface Props {
   site: Site;
+  // tab and onTabChange make the active tab URL-driven (deep-linkable): the
+  // parent maps it to /s/<group>/<slug>/-/<tab> and back.
+  tab: Tab;
+  onTabChange: (t: Tab) => void;
   base: string;
   isAdmin: boolean;
   // versioningEnabled reflects the server config; when false, replacing a site
@@ -17,13 +23,19 @@ interface Props {
   onGone: () => void;
 }
 
-type Tab = "overview" | "files";
-
 // SitePage is the dedicated per-site view. It is a tabbed shell so additional
 // site features can be added as new tabs over time.
-export function SitePage({ site: initial, base, isAdmin, versioningEnabled, onBack, onGone }: Props) {
+export function SitePage({
+  site: initial,
+  tab,
+  onTabChange,
+  base,
+  isAdmin,
+  versioningEnabled,
+  onBack,
+  onGone,
+}: Props) {
   const [site, setSite] = useState<Site>(initial);
-  const [tab, setTab] = useState<Tab>("overview");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -77,7 +89,7 @@ export function SitePage({ site: initial, base, isAdmin, versioningEnabled, onBa
           role="tab"
           className={`tab ${tab === "overview" ? "active" : ""}`}
           aria-selected={tab === "overview"}
-          onClick={() => setTab("overview")}
+          onClick={() => onTabChange("overview")}
         >
           Overview
         </button>
@@ -85,7 +97,7 @@ export function SitePage({ site: initial, base, isAdmin, versioningEnabled, onBa
           role="tab"
           className={`tab ${tab === "files" ? "active" : ""}`}
           aria-selected={tab === "files"}
-          onClick={() => setTab("files")}
+          onClick={() => onTabChange("files")}
         >
           Files
         </button>
