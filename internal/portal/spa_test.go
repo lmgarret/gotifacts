@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 func reqSPA(t *testing.T, spa *SPA, path string) (string, int) {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodGet, path, nil)
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
 	w := httptest.NewRecorder()
 	spa.ServeHTTP(w, r)
 	return w.Body.String(), w.Code
