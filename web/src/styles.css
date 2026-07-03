@@ -499,6 +499,12 @@ main {
     outline: none;
 }
 
+.sites-table .ext-icon {
+    width: 1rem;
+    height: 1rem;
+    display: block;
+}
+
 /* Layout toggle */
 .layout-toggle {
     display: inline-flex;
