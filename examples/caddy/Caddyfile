@@ -16,6 +16,16 @@
 # oauth2-proxy) that returns the user in the Remote-User header.
 # ============================================================================
 
+# On-demand TLS: obtain a certificate per concrete host during the TLS
+# handshake, gated by gotifacts' ask endpoint (returns 200 only for the apex or
+# a known live site). Used by the *.*.example.com block below, since browsers
+# reject multi-level wildcard certs. Requires GOTIFACTS_ON_DEMAND_TLS=true.
+{
+	on_demand_tls {
+		ask http://gotifacts:8080/_gotifacts/tls-check
+	}
+}
+
 # Replace example.com with your base domain.
 (strip_identity) {
 	# SECURITY: never trust a client-supplied identity header.
@@ -68,8 +78,18 @@ example.com {
 
 # === Site content: two label levels (*.*.example.com) =======================
 # Caddy wildcards match a single label, so deeper hosts need their own block.
+# Browsers reject multi-level wildcard certs (*.*.example.com), so instead of a
+# wildcard we use on-demand TLS: Caddy obtains a normal single-name cert per
+# concrete host (e.g. app.claude.example.com) at handshake time, gated by the
+# ask endpoint in the global block above. Each deeper level (up to gotifacts'
+# max depth of 3, i.e. *.*.*.example.com) needs its own analogous block. The
+# one-level *.example.com block above can opt into the same pattern if you'd
+# rather not manage a wildcard cert (which requires the ACME DNS-01 challenge).
 *.*.example.com {
 	import strip_identity
+	tls {
+		on_demand
+	}
 	reverse_proxy gotifacts:8080
 	header Content-Security-Policy "frame-ancestors https://example.com"
 }

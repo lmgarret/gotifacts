@@ -72,7 +72,11 @@ func runServe(ctx context.Context, _ []string) error {
 	}
 	go runPurgeLoop(ctx, pub, log)
 
-	dispatch := router.NewDispatch(cfg, apex, sites)
+	var tlsCheck http.Handler
+	if cfg.OnDemandTLS {
+		tlsCheck = httplog.Middleware(log.With("plane", "tls-check"), slog.LevelDebug)(apexSrv.TLSCheckHandler())
+	}
+	dispatch := router.NewDispatch(cfg, apex, sites, cfg.OnDemandTLSPath, tlsCheck)
 	authn := auth.New(cfg, st)
 	handler := authn.StripUntrustedIdentity(dispatch)
 
@@ -93,6 +97,7 @@ func runServe(ctx context.Context, _ []string) error {
 		"addr", cfg.ListenAddr,
 		"base_domain", cfg.BaseDomain,
 		"versioning", cfg.VersioningEnabled,
+		"on_demand_tls", cfg.OnDemandTLS,
 		"trusted_proxies", len(cfg.TrustedProxies),
 		"admin_users", len(cfg.AdminUsers))
 

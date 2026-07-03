@@ -75,6 +75,18 @@ within `GOTIFACTS_TRUSTED_PROXIES`; otherwise it is stripped. See the
 
 See [enable versioning & roll back](/gotifacts/guides/versioning-and-rollback/).
 
+## TLS (on-demand)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `GOTIFACTS_ON_DEMAND_TLS` | `false` | Expose the ask endpoint so a proxy can obtain a certificate per host, gated by the site registry. |
+| `GOTIFACTS_ON_DEMAND_TLS_PATH` | `/_gotifacts/tls-check` | Request path the ask endpoint answers on (matched regardless of Host). |
+
+The endpoint returns `200` only for the apex or a known live site, so a proxy
+never requests certificates for arbitrary hostnames. This lets Caddy serve deep
+hosts (`app.claude.example.com`) with per-host certs instead of a browser-rejected
+multi-level wildcard. See [configure Caddy](/gotifacts/guides/reverse-proxy-caddy/#on-demand-tls-custom--deep-hosts).
+
 ## Lifecycle & retention
 
 | Variable | Default | Notes |

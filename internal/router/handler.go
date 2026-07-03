@@ -12,15 +12,26 @@ type Dispatch struct {
 	cfg   *config.Config
 	apex  http.Handler
 	sites http.Handler
+	// tlsCheck, when non-nil, answers the on-demand TLS "ask" endpoint at
+	// tlsPath. It is matched before host routing because the proxy's ask request
+	// does not carry the base domain as its Host.
+	tlsPath  string
+	tlsCheck http.Handler
 }
 
-// NewDispatch builds the top-level host dispatcher.
-func NewDispatch(cfg *config.Config, apex, sites http.Handler) *Dispatch {
-	return &Dispatch{cfg: cfg, apex: apex, sites: sites}
+// NewDispatch builds the top-level host dispatcher. tlsCheck may be nil to
+// disable the on-demand TLS ask endpoint.
+func NewDispatch(cfg *config.Config, apex, sites http.Handler, tlsPath string, tlsCheck http.Handler) *Dispatch {
+	return &Dispatch{cfg: cfg, apex: apex, sites: sites, tlsPath: tlsPath, tlsCheck: tlsCheck}
 }
 
-// ServeHTTP dispatches by host.
+// ServeHTTP dispatches the on-demand TLS ask endpoint (any Host) first, then by
+// host.
 func (d *Dispatch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if d.tlsCheck != nil && r.URL.Path == d.tlsPath {
+		d.tlsCheck.ServeHTTP(w, r)
+		return
+	}
 	if IsBaseHost(r.Host, d.cfg.BaseDomain) {
 		d.apex.ServeHTTP(w, r)
 		return

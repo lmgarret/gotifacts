@@ -26,6 +26,7 @@ const (
 	DefaultMaxExtractBytes   = 256 << 20 // 256 MiB
 	DefaultMaxExtractEntries = 10000
 	DefaultVersioningKeep    = 5
+	DefaultOnDemandTLSPath   = "/_gotifacts/tls-check"
 	DefaultDeletedSiteTTL    = 30 * 24 * time.Hour
 	DefaultMCPGroup          = "claude"
 	DefaultMCPAccessTokenTTL = time.Hour
@@ -60,6 +61,14 @@ type Config struct {
 	VersioningEnabled bool
 	// VersioningKeep is the number of historical versions retained per site.
 	VersioningKeep int
+	// OnDemandTLS exposes the Caddy on-demand TLS "ask" endpoint so a proxy can
+	// check whether a hostname maps to a known site before obtaining a
+	// certificate for it. Off by default.
+	OnDemandTLS bool
+	// OnDemandTLSPath is the request path the ask endpoint answers on. It is
+	// matched regardless of Host, since the proxy's ask request does not carry
+	// the base domain.
+	OnDemandTLSPath string
 	// DeletedSiteTTL is how long soft-deleted site files are kept in the
 	// quarantine directory before the background purge removes them permanently.
 	// Set to 0 to purge immediately on the next purge cycle.
@@ -151,6 +160,7 @@ func Load() (*Config, error) {
 		MaxExtractBytes:   DefaultMaxExtractBytes,
 		MaxExtractEntries: DefaultMaxExtractEntries,
 		VersioningKeep:    DefaultVersioningKeep,
+		OnDemandTLSPath:   envOr("GOTIFACTS_ON_DEMAND_TLS_PATH", DefaultOnDemandTLSPath),
 		MCPAllowedUsers:   splitList(os.Getenv("GOTIFACTS_MCP_ALLOWED_USERS")),
 		MCPGroup:          strings.ToLower(envOr("GOTIFACTS_MCP_GROUP", DefaultMCPGroup)),
 		LogLevel:          strings.ToLower(envOr("GOTIFACTS_LOG_LEVEL", DefaultLogLevel)),
@@ -175,6 +185,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if c.VersioningEnabled, err = envBool("GOTIFACTS_VERSIONING_ENABLED", false); err != nil {
+		return nil, err
+	}
+	if c.OnDemandTLS, err = envBool("GOTIFACTS_ON_DEMAND_TLS", false); err != nil {
 		return nil, err
 	}
 	if c.DeletedSiteTTL, err = envDuration("GOTIFACTS_DELETED_SITE_TTL", DefaultDeletedSiteTTL); err != nil {
@@ -220,6 +233,9 @@ func (c *Config) Validate() []error {
 	}
 	if c.VersioningEnabled && c.VersioningKeep <= 0 {
 		errs = append(errs, fmt.Errorf("GOTIFACTS_VERSIONING_KEEP must be positive when versioning is enabled"))
+	}
+	if c.OnDemandTLS && !strings.HasPrefix(c.OnDemandTLSPath, "/") {
+		errs = append(errs, fmt.Errorf("GOTIFACTS_ON_DEMAND_TLS_PATH must start with %q when on-demand TLS is enabled", "/"))
 	}
 	if len(c.AdminUsers) == 0 && len(c.TrustedProxies) == 0 {
 		errs = append(errs, fmt.Errorf("no admins reachable: set GOTIFACTS_ADMIN_USERS and GOTIFACTS_TRUSTED_PROXIES, or create an admin key via the CLI"))

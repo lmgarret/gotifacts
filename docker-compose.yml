@@ -17,6 +17,7 @@ services:
       GOTIFACTS_VERSIONING_ENABLED: ${GOTIFACTS_VERSIONING_ENABLED:-false}
       GOTIFACTS_VERSIONING_KEEP: ${GOTIFACTS_VERSIONING_KEEP:-5}
       GOTIFACTS_MAX_UPLOAD_BYTES: ${GOTIFACTS_MAX_UPLOAD_BYTES:-67108864}
+      GOTIFACTS_ON_DEMAND_TLS: ${GOTIFACTS_ON_DEMAND_TLS:-false}
     tmpfs:
       # Gotifacts image is based on scratch and does not have any /tmp
       # We need it to ingest sites
