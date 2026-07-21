@@ -31,3 +31,9 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+    ignore:
+      # typescript-eslint (v8) only supports TypeScript "<6.1.0", so a TypeScript
+      # major bump (e.g. 7.x) breaks `npm ci` peer resolution and fails CI. Hold
+      # major TS upgrades until the eslint tooling declares support for them.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
