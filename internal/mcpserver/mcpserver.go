@@ -169,11 +169,13 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	kind := ingest.KindIndex
 	var content io.Reader = strings.NewReader(in.HTML)
 	if hasFiles {
-		buf, err := buildBundle(in.Files)
+		buf, err := buildBundle(in.Files, s.cfg.MaxUploadBytes)
 		if err != nil {
 			return errorResult(err.Error()), publishOutput{}, nil
 		}
 		kind, content = ingest.KindBundle, buf
+	} else if int64(len(in.HTML)) > s.cfg.MaxUploadBytes {
+		return errorResult(fmt.Sprintf("html exceeds the %d-byte upload limit", s.cfg.MaxUploadBytes)), publishOutput{}, nil
 	}
 
 	meta := ingest.Meta{
@@ -197,13 +199,16 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 
 // buildBundle converts a multi-file site input into an in-memory gzip-tar
 // (ingest.KindBundle) payload. It validates each path (rejecting absolute paths
-// and ".." traversal), decodes per-file encodings, and requires a top-level
-// index.html — the same invariant the publish pipeline enforces after
-// extraction, checked here so callers get a clear, early error.
-func buildBundle(files []publishFile) (*bytes.Buffer, error) {
+// and ".." traversal), decodes per-file encodings, caps the cumulative decoded
+// size at maxBytes (mirroring the HTTP plane's MaxUploadBytes, which the direct
+// Publish call would otherwise skip), and requires a top-level index.html — the
+// same invariant the publish pipeline enforces after extraction, checked here so
+// callers get a clear, early error.
+func buildBundle(files []publishFile, maxBytes int64) (*bytes.Buffer, error) {
 	named := make([]archive.NamedFile, 0, len(files))
 	seen := make(map[string]bool, len(files))
 	hasIndex := false
+	var total int64
 	for _, f := range files {
 		norm := strings.ReplaceAll(f.Path, `\`, "/")
 		if norm == "" || strings.HasPrefix(norm, "/") || path.IsAbs(norm) {
@@ -223,6 +228,10 @@ func buildBundle(files []publishFile) (*bytes.Buffer, error) {
 		data, err := decodeContent(f)
 		if err != nil {
 			return nil, err
+		}
+		total += int64(len(data))
+		if total > maxBytes {
+			return nil, fmt.Errorf("files exceed the %d-byte upload limit", maxBytes)
 		}
 		named = append(named, archive.NamedFile{Name: rel, Data: data})
 	}

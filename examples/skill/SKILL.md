@@ -86,6 +86,16 @@ first-class; pick the one that matches what you have.
   }
   ```
 
+**Size — pick the right path.** `html` and `files` travel inside the MCP tool
+call, so their real ceiling is how much you can put in one call (and `base64`
+inflates binary by ~⅓); keep them to small, hand-authored sites. For anything
+large or asset-heavy — a built `dist/` with real images or fonts — use the
+**API-key `bundle` path below**, which streams a compressed archive and is
+bounded by the server's upload limit (`GOTIFACTS_MAX_UPLOAD_BYTES`, default
+64 MiB) rather than the tool call. Both paths also enforce the extraction caps
+`GOTIFACTS_MAX_EXTRACT_BYTES` (default 256 MiB) and `GOTIFACTS_MAX_EXTRACT_ENTRIES`
+(default 10 000 files).
+
 **API key — curl:**
 
 1. Prepare the content:

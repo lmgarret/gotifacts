@@ -55,6 +55,19 @@ argument) and a **multi-file site** — an `index.html` plus separate CSS/JS/ima
 assets — via a `files` array of `{path, content, encoding}` objects (`encoding`
 is `utf8` or `base64` for binary assets).
 
+:::note[When to use MCP vs. an archive upload]
+Both `html` and `files` travel *inside* the MCP tool call, so their practical
+size ceiling is what fits in a single call — and `base64` inflates binary assets
+by roughly a third. They're ideal for small, generated sites. For a large or
+asset-heavy site (a built `dist/` with real images or fonts), publish a
+`.tar.gz`/`.zip` **`bundle`** through the [ingest API](/gotifacts/guides/publish-from-ci/)
+instead: it streams a compressed archive and is bounded by
+`GOTIFACTS_MAX_UPLOAD_BYTES` (default 64 MiB) rather than the tool call. Both
+paths then enforce the extraction limits `GOTIFACTS_MAX_EXTRACT_BYTES` (256 MiB)
+and `GOTIFACTS_MAX_EXTRACT_ENTRIES` (10 000) — see the
+[configuration reference](/gotifacts/reference/configuration/).
+:::
+
 For the **API MCP connector** or **Claude Code**, the same server works with a
 token obtained through the OAuth flow.
 

@@ -415,6 +415,40 @@ func TestPublishSiteToolMultiFile(t *testing.T) {
 	}
 }
 
+func TestBuildBundleSizeLimit(t *testing.T) {
+	files := []publishFile{
+		{Path: "index.html", Content: strings.Repeat("a", 40)},
+		{Path: "big.txt", Content: strings.Repeat("b", 100)},
+	}
+	// Comfortably above the total decoded size: succeeds.
+	if _, err := buildBundle(files, 1<<20); err != nil {
+		t.Fatalf("buildBundle under limit: %v", err)
+	}
+	// Below the cumulative decoded size (140 bytes): rejected before extraction.
+	if _, err := buildBundle(files, 100); err == nil {
+		t.Fatal("expected buildBundle to reject files over the byte limit")
+	}
+}
+
+func TestPublishSiteToolHTMLSizeLimit(t *testing.T) {
+	s, cfg := newTestService(t)
+	cfg.MaxUploadBytes = 32 // tiny cap to exercise the guard
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish},
+	})
+	req := mcpReq(principal)
+
+	res, _, _ := s.publishSite(context.Background(), req, publishInput{
+		Slug: "toobig",
+		HTML: "<!doctype html>" + strings.Repeat("x", 64),
+	})
+	if !res.IsError {
+		t.Fatal("expected error when html exceeds the upload limit")
+	}
+}
+
 func TestUnpublishSiteTool(t *testing.T) {
 	s, cfg := newTestService(t)
 	ctx := context.Background()
