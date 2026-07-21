@@ -49,13 +49,19 @@ consent, then call the appropriate MCP tool (or `curl` command). Operations:
 
 | Ask Claude to... | Skill action |
 | --- | --- |
-| Publish / share a page | `publish_site` / POST |
+| Publish / share a page or a multi-file site | `publish_site` / POST |
 | Unpublish / take down | `unpublish_site` / DELETE |
 | Update title or tags | `update_site` / PATCH |
 | List a site's revisions | `list_revisions` / GET revisions |
 | Roll back to previous (or a chosen revision) | `rollback_site` / POST rollback |
 | Restore from quarantine | `restore_site` / POST restore |
 | Permanently delete | `purge_site` / POST purge |
+
+Publishing works for both a single self-contained page and a multi-file site (an
+`index.html` plus separate CSS/JS/image assets): via MCP, pass `html` for a
+single page or a `files` array (`{path, content, encoding}`, with `encoding`
+`utf8` or `base64`) for a multi-file site; via the API key path, use the `index`
+or `bundle` part as shown in [publish from CI](/gotifacts/guides/publish-from-ci/).
 
 Re-publishing the same `group`/`slug` replaces the existing site. Unpublishing
 keeps files in quarantine for the server's configured TTL (default 30 days)
