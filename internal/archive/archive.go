@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -257,4 +258,43 @@ func WriteSingleIndex(r io.Reader, dest string, maxBytes int64) error {
 		return err
 	}
 	return nil
+}
+
+// NamedFile is one entry for WriteTarGz: a slash-relative path and its bytes.
+type NamedFile struct {
+	// Name is the slash-relative path of the file within the archive.
+	Name string
+	// Data is the file's raw content.
+	Data []byte
+}
+
+// WriteTarGz writes files as a gzip-compressed tar stream to w. It is the
+// producing counterpart to ExtractTarGz: it turns a set of in-memory files into
+// a KindBundle payload that the publish pipeline can extract. Entries are
+// emitted in sorted order for deterministic output. Names are only cleaned here;
+// the extractor is the security boundary that rejects unsafe paths.
+func WriteTarGz(w io.Writer, files []NamedFile) error {
+	sorted := append([]NamedFile(nil), files...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	for _, f := range sorted {
+		hdr := &tar.Header{
+			Name:     cleanRel(f.Name),
+			Mode:     0o644,
+			Size:     int64(len(f.Data)),
+			Typeflag: tar.TypeReg,
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if _, err := tw.Write(f.Data); err != nil {
+			return err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return gz.Close()
 }

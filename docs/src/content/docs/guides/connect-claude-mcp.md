@@ -50,7 +50,10 @@ In Claude → **Settings → Connectors → Add custom connector**, enter
 - the **capabilities** to allow (`publish`, `patch`, `unpublish`, `rollback`, `purge`).
 
 The connector can never act outside what you granted. Then ask Claude to publish
-a page.
+a page. `publish_site` handles both a **single self-contained page** (the `html`
+argument) and a **multi-file site** — an `index.html` plus separate CSS/JS/image
+assets — via a `files` array of `{path, content, encoding}` objects (`encoding`
+is `utf8` or `base64` for binary assets).
 
 For the **API MCP connector** or **Claude Code**, the same server works with a
 token obtained through the OAuth flow.

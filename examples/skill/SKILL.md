@@ -61,13 +61,37 @@ Do not act until the user agrees.
 
 ### Publish (create or replace)
 
-**MCP:** call `publish_site` with `slug`, `html`, and optional `title`,
-`description`, `tags`, `group`.
+A site is either a **single self-contained page** or a **multi-file site** (an
+`index.html` plus separate assets like CSS, JS, images, or fonts). Both are
+first-class; pick the one that matches what you have.
+
+**MCP:** call `publish_site` with `slug`, optional `title`, `description`,
+`tags`, `group`, and **exactly one** of:
+
+- `html` — a single self-contained HTML document (inline CSS/JS; small images as
+  data URIs). Best for a one-page site.
+- `files` — a multi-file site as an array of `{path, content, encoding?}`
+  objects. `path` is slash-relative within the site and **must include a
+  top-level `index.html`**. `encoding` is `"utf8"` (default) or `"base64"` for
+  binary assets. Example:
+
+  ```json
+  {
+    "slug": "report",
+    "files": [
+      { "path": "index.html",     "content": "<!doctype html>…<link rel=stylesheet href=assets/app.css>…" },
+      { "path": "assets/app.css", "content": "body{font-family:sans-serif}" },
+      { "path": "img/logo.png",   "content": "<base64…>", "encoding": "base64" }
+    ]
+  }
+  ```
 
 **API key — curl:**
 
-1. Produce a self-contained `index.html` (inline all CSS/JS; small images as
-   data URIs).
+1. Prepare the content:
+   - Single page: produce a self-contained `index.html` (inline all CSS/JS;
+     small images as data URIs).
+   - Multi-file site: a directory with a top-level `index.html` and its assets.
 
 2. Pick a URL-safe `slug` and `group`:
    - `slug`: leaf name, e.g. `quarterly-report`.
@@ -89,17 +113,30 @@ Do not act until the user agrees.
    }
    ```
 
-4. POST:
+4. POST with **either** an `index` (single page) **or** a `bundle`
+   (multi-file archive) part:
 
    ```sh
+   # Single self-contained page:
    curl -fsS \
      -H "Authorization: Bearer ${GOTIFACTS_API_KEY}" \
      -F 'meta=<meta.json;type=application/json' \
      -F 'index=@index.html;type=text/html' \
      "${GOTIFACTS_URL}/ingest/sites"
+
+   # Multi-file site — pack the directory (with a top-level index.html) first:
+   tar -czf site.tgz -C ./dist .
+   curl -fsS \
+     -H "Authorization: Bearer ${GOTIFACTS_API_KEY}" \
+     -F 'meta=<meta.json;type=application/json' \
+     -F 'bundle=@site.tgz;type=application/gzip' \
+     "${GOTIFACTS_URL}/ingest/sites"
    ```
 
-   Successful response: `{"url": "...", "group": "...", "slug": "...", "updated_at": "..."}`.
+   A `.zip` archive works too (the format is detected from magic bytes, not the
+   field or file name); a single common top-level directory is stripped so
+   `index.html` lands at the site root. Successful response:
+   `{"url": "...", "group": "...", "slug": "...", "updated_at": "..."}`.
 
 5. Report the returned `url` to the user. Re-publishing the same `group`/`slug`
    is idempotent (replaces the existing site).
@@ -250,7 +287,7 @@ capability.
 | --- | --- | --- |
 | `401` | Key missing or invalid | Check `GOTIFACTS_API_KEY` |
 | `403` | Key not permitted for this group/capability | Use a slug/group within the allowed subtree, or request a key with the right capability |
-| `400` | Invalid path or missing `index.html` | Fix the slug/group label or the HTML |
+| `400` | Invalid path, or the page/bundle has no top-level `index.html` | Fix the slug/group label; ensure the `html`/`index` content or the `files`/`bundle` archive contains a top-level `index.html` |
 | `404` | Site does not exist | Verify the group and slug |
 
 ---

@@ -16,15 +16,19 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
+	"github.com/lmgarret/gotifacts/internal/archive"
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/config"
 	"github.com/lmgarret/gotifacts/internal/ingest"
@@ -69,9 +73,12 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "gotifacts", Version: serverVersion}, nil)
 	mcpsdk.AddTool(srv, &mcpsdk.Tool{
 		Name: "publish_site",
-		Description: "Publish a self-contained HTML page to this gotifacts instance and " +
-			"return its public URL. Provide the full standalone HTML document (inline " +
-			"CSS/JS) as `html` and a URL-safe `slug`. Re-publishing the same slug replaces " +
+		Description: "Publish a site to this gotifacts instance and return its public URL. " +
+			"Provide a URL-safe `slug` and the content as exactly one of: `html` — a single " +
+			"self-contained HTML document (inline CSS/JS) for a one-page site; or `files` — a " +
+			"multi-file site as an array of {path, content, encoding} objects (encoding is " +
+			"\"utf8\" (default) or \"base64\" for binary assets like images/fonts). A multi-file " +
+			"site MUST include a top-level `index.html`. Re-publishing the same slug replaces " +
 			"the existing site.",
 	}, s.publishSite)
 	mcpsdk.AddTool(srv, &mcpsdk.Tool{
@@ -109,14 +116,24 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 	return s, nil
 }
 
-// publishInput mirrors the publishable subset of ingest.Meta plus the HTML body.
+// publishInput mirrors the publishable subset of ingest.Meta plus the content.
+// Exactly one of HTML (single-page) or Files (multi-file site) must be set.
 type publishInput struct {
-	Slug        string   `json:"slug"`
-	HTML        string   `json:"html"`
-	Title       string   `json:"title,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Group       string   `json:"group,omitempty"`
+	Slug        string        `json:"slug"`
+	HTML        string        `json:"html,omitempty"`
+	Files       []publishFile `json:"files,omitempty"`
+	Title       string        `json:"title,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Tags        []string      `json:"tags,omitempty"`
+	Group       string        `json:"group,omitempty"`
+}
+
+// publishFile is one file of a multi-file site upload. Content is UTF-8 text by
+// default; set Encoding to "base64" to carry binary assets (images, fonts).
+type publishFile struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // publishOutput is the structured result of a successful publish.
@@ -139,11 +156,24 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	if group == "" {
 		group = s.cfg.MCPGroup
 	}
-	if strings.TrimSpace(in.HTML) == "" {
-		return errorResult("html must not be empty"), publishOutput{}, nil
+
+	hasHTML := strings.TrimSpace(in.HTML) != ""
+	hasFiles := len(in.Files) > 0
+	if hasHTML == hasFiles {
+		return errorResult("provide exactly one of `html` (single page) or `files` (multi-file site)"), publishOutput{}, nil
 	}
 	if !p.CanPublishTo(group, in.Slug) {
 		return errorResult(fmt.Sprintf("this connection is not permitted to publish %q in group %q", in.Slug, group)), publishOutput{}, nil
+	}
+
+	kind := ingest.KindIndex
+	var content io.Reader = strings.NewReader(in.HTML)
+	if hasFiles {
+		buf, err := buildBundle(in.Files)
+		if err != nil {
+			return errorResult(err.Error()), publishOutput{}, nil
+		}
+		kind, content = ingest.KindBundle, buf
 	}
 
 	meta := ingest.Meta{
@@ -153,7 +183,7 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 		Description: in.Description,
 		Tags:        in.Tags,
 	}
-	res, _, err := s.pub.Publish(ctx, meta, ingest.KindIndex, strings.NewReader(in.HTML))
+	res, _, err := s.pub.Publish(ctx, meta, kind, content)
 	if err != nil {
 		s.log.Warn("mcp publish failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("publish failed: " + err.Error()), publishOutput{}, nil
@@ -163,6 +193,64 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "Published to " + res.URL}},
 	}, out, nil
+}
+
+// buildBundle converts a multi-file site input into an in-memory gzip-tar
+// (ingest.KindBundle) payload. It validates each path (rejecting absolute paths
+// and ".." traversal), decodes per-file encodings, and requires a top-level
+// index.html — the same invariant the publish pipeline enforces after
+// extraction, checked here so callers get a clear, early error.
+func buildBundle(files []publishFile) (*bytes.Buffer, error) {
+	named := make([]archive.NamedFile, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	hasIndex := false
+	for _, f := range files {
+		norm := strings.ReplaceAll(f.Path, `\`, "/")
+		if norm == "" || strings.HasPrefix(norm, "/") || path.IsAbs(norm) {
+			return nil, fmt.Errorf("invalid file path %q", f.Path)
+		}
+		rel := path.Clean(norm)
+		if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+			return nil, fmt.Errorf("invalid file path %q", f.Path)
+		}
+		if seen[rel] {
+			return nil, fmt.Errorf("duplicate file path %q", rel)
+		}
+		seen[rel] = true
+		if rel == "index.html" {
+			hasIndex = true
+		}
+		data, err := decodeContent(f)
+		if err != nil {
+			return nil, err
+		}
+		named = append(named, archive.NamedFile{Name: rel, Data: data})
+	}
+	if !hasIndex {
+		return nil, fmt.Errorf("`files` must include a top-level index.html")
+	}
+	var buf bytes.Buffer
+	if err := archive.WriteTarGz(&buf, named); err != nil {
+		return nil, err
+	}
+	return &buf, nil
+}
+
+// decodeContent returns a file's raw bytes, honoring its encoding: UTF-8 text by
+// default, or base64 for binary assets.
+func decodeContent(f publishFile) ([]byte, error) {
+	switch strings.ToLower(strings.TrimSpace(f.Encoding)) {
+	case "", "utf8", "utf-8", "text":
+		return []byte(f.Content), nil
+	case "base64":
+		data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(f.Content))
+		if err != nil {
+			return nil, fmt.Errorf("file %q: invalid base64 content: %w", f.Path, err)
+		}
+		return data, nil
+	default:
+		return nil, fmt.Errorf("file %q: unknown encoding %q (use \"utf8\" or \"base64\")", f.Path, f.Encoding)
+	}
 }
 
 // unpublishInput identifies the site to soft-delete.

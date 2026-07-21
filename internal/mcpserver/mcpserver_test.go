@@ -342,6 +342,79 @@ func TestPublishSiteTool(t *testing.T) {
 	}
 }
 
+func TestPublishSiteToolMultiFile(t *testing.T) {
+	s, cfg := newTestService(t)
+	ctx := context.Background()
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish},
+	})
+	req := mcpReq(principal)
+
+	png := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
+	res, out, err := s.publishSite(ctx, req, publishInput{
+		Slug: "site",
+		Files: []publishFile{
+			{Path: "index.html", Content: "<!doctype html><link rel=stylesheet href=assets/app.css><img src=img/logo.png>"},
+			{Path: "assets/app.css", Content: "body{color:red}"},
+			{Path: "img/logo.png", Content: base64.StdEncoding.EncodeToString(png), Encoding: "base64"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %+v", res.Content)
+	}
+	if out.URL != "https://site.claude.example.com" {
+		t.Fatalf("url = %q", out.URL)
+	}
+
+	siteDir := filepath.Join(cfg.SitesDir(), "claude", "site", "@site")
+	if b, err := os.ReadFile(filepath.Join(siteDir, "assets", "app.css")); err != nil || string(b) != "body{color:red}" {
+		t.Fatalf("css = %q err=%v", b, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(siteDir, "img", "logo.png")); err != nil || string(b) != string(png) {
+		t.Fatalf("png round-trip mismatch: %v err=%v", b, err)
+	}
+
+	// A multi-file site without a top-level index.html is rejected.
+	if res, _, _ := s.publishSite(ctx, req, publishInput{Slug: "noindex", Files: []publishFile{
+		{Path: "about.html", Content: "<h1>about</h1>"},
+	}}); !res.IsError {
+		t.Fatal("expected error when files lack a top-level index.html")
+	}
+
+	// Path traversal is rejected.
+	if res, _, _ := s.publishSite(ctx, req, publishInput{Slug: "evil", Files: []publishFile{
+		{Path: "index.html", Content: "<h1>hi</h1>"},
+		{Path: "../escape.txt", Content: "x"},
+	}}); !res.IsError {
+		t.Fatal("expected error for traversal path")
+	}
+
+	// Invalid base64 is rejected.
+	if res, _, _ := s.publishSite(ctx, req, publishInput{Slug: "badb64", Files: []publishFile{
+		{Path: "index.html", Content: "<h1>hi</h1>"},
+		{Path: "x.bin", Content: "!!!not-base64!!!", Encoding: "base64"},
+	}}); !res.IsError {
+		t.Fatal("expected error for invalid base64 content")
+	}
+
+	// Providing both html and files is rejected (exactly one required).
+	if res, _, _ := s.publishSite(ctx, req, publishInput{Slug: "both", HTML: "<h1>hi</h1>", Files: []publishFile{
+		{Path: "index.html", Content: "<h1>hi</h1>"},
+	}}); !res.IsError {
+		t.Fatal("expected error when both html and files are provided")
+	}
+
+	// Providing neither html nor files is rejected.
+	if res, _, _ := s.publishSite(ctx, req, publishInput{Slug: "neither"}); !res.IsError {
+		t.Fatal("expected error when neither html nor files are provided")
+	}
+}
+
 func TestUnpublishSiteTool(t *testing.T) {
 	s, cfg := newTestService(t)
 	ctx := context.Background()

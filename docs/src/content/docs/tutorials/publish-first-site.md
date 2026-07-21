@@ -85,6 +85,15 @@ live thumbnail.
 Publishing is idempotent: the same `group`/`slug` replaces the site. Edit
 `index.html`, run the Step 4 command again, and the URL updates in place.
 
+:::tip[Multi-file sites]
+This tutorial publishes a single self-contained page with the `index` part. To
+publish a **directory** — an `index.html` plus separate CSS/JS/image assets —
+send a `.tar.gz` or `.zip` archive as a `bundle` part instead. See
+[Publish from CI](/gotifacts/guides/publish-from-ci/) for the archive command,
+or [Connect Claude via MCP](/gotifacts/guides/connect-claude-mcp/) to publish a
+multi-file site through the `publish_site` tool's `files` array.
+:::
+
 ## What you learned
 
 - The ingest plane is key-authenticated and separate from the portal.

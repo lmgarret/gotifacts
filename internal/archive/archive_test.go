@@ -246,3 +246,32 @@ func TestWriteSingleIndex(t *testing.T) {
 		t.Fatalf("index content = %q err=%v", b, err)
 	}
 }
+
+func TestWriteTarGzRoundTrip(t *testing.T) {
+	var buf bytes.Buffer
+	err := WriteTarGz(&buf, []NamedFile{
+		{Name: "index.html", Data: []byte("<h1>hi</h1>")},
+		{Name: "assets/app.css", Data: []byte("body{}")},
+		{Name: "img/logo.png", Data: []byte{0x89, 'P', 'N', 'G', 0x00, 0xFF}},
+	})
+	if err != nil {
+		t.Fatalf("WriteTarGz: %v", err)
+	}
+
+	dest := t.TempDir()
+	if err := ExtractTarGz(&buf, dest, defaultLimits()); err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	for name, want := range map[string]string{
+		"index.html":     "<h1>hi</h1>",
+		"assets/app.css": "body{}",
+	} {
+		got, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(name)))
+		if err != nil || string(got) != want {
+			t.Fatalf("%s = %q err=%v", name, got, err)
+		}
+	}
+	if got, _ := os.ReadFile(filepath.Join(dest, "img", "logo.png")); !bytes.Equal(got, []byte{0x89, 'P', 'N', 'G', 0x00, 0xFF}) {
+		t.Fatalf("binary asset round-trip mismatch: %v", got)
+	}
+}
