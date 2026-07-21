@@ -676,6 +676,7 @@ main {
     border-radius: 999px;
     padding: 0.05rem 0.55rem;
     color: var(--muted);
+    white-space: nowrap;
 }
 
 .tag.warn {
