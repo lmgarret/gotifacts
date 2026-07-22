@@ -43,7 +43,10 @@ The [nginx](/gotifacts/guides/reverse-proxy-nginx/) and
 ## 3. Connect from Claude
 
 In Claude → **Settings → Connectors → Add custom connector**, enter
-`https://<your-base-domain>/mcp`. Complete the SSO consent, where you pick:
+`https://<your-base-domain>/mcp`. Use the **canonical** `GOTIFACTS_BASE_DOMAIN`
+here even if you serve [alias domains](/gotifacts/reference/configuration/) — the
+OAuth issuer is always the canonical domain. Complete the SSO consent, where you
+pick:
 
 - a **target** — a group subtree or a single site, prefilled from
   `GOTIFACTS_MCP_GROUP` (default `claude`), and

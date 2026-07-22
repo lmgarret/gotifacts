@@ -66,6 +66,14 @@ blocks. Both strip the identity header and add the framing policy for
 }
 ```
 
+Keep the `frame-ancestors` value pointed at the canonical
+`GOTIFACTS_BASE_DOMAIN`, since the portal is served from there.
+
+To serve the instance on additional
+[alias domains](/gotifacts/reference/configuration/), list them in
+`GOTIFACTS_ALIAS_DOMAINS` and duplicate the apex + wildcard blocks for each
+domain. gotifacts serves the same sites under every domain.
+
 ## MCP endpoints
 
 If you enable the [MCP connector](/gotifacts/guides/connect-claude-mcp/), add a

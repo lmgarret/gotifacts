@@ -104,6 +104,47 @@ func TestNewSitePathValidation(t *testing.T) {
 	}
 }
 
+func TestMatchDomain(t *testing.T) {
+	domains := []string{"example.com", "example.org"}
+	tests := []struct {
+		host     string
+		wantBase string
+		wantOK   bool
+	}{
+		{"example.com", "example.com", true},            // canonical apex
+		{"example.org", "example.org", true},            // alias apex
+		{"app.claude.example.com", "example.com", true}, // canonical sub-domain
+		{"app.claude.example.org", "example.org", true}, // alias sub-domain
+		{"EXAMPLE.ORG:8080", "example.org", true},       // case + port normalized
+		{"demo.example.org.", "example.org", true},      // trailing dot normalized
+		{"other.com", "", false},                        // unrelated domain
+		{"notexample.com", "", false},                   // suffix without label boundary
+		{"", "", false},                                 // empty host
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			base, ok := MatchDomain(tt.host, domains)
+			if ok != tt.wantOK || base != tt.wantBase {
+				t.Fatalf("MatchDomain(%q) = (%q, %v), want (%q, %v)", tt.host, base, ok, tt.wantBase, tt.wantOK)
+			}
+		})
+	}
+}
+
+// TestMatchDomainOverlap verifies the longest (most-specific) domain wins when
+// one configured domain is a suffix of another, so the correct labels are
+// stripped by a subsequent ParseHost.
+func TestMatchDomainOverlap(t *testing.T) {
+	domains := []string{"example.com", "sites.example.com"}
+	base, ok := MatchDomain("demo.sites.example.com", domains)
+	if !ok || base != "sites.example.com" {
+		t.Fatalf("MatchDomain overlap = (%q, %v), want (sites.example.com, true)", base, ok)
+	}
+	if sp, err := ParseHost("demo.sites.example.com", base); err != nil || sp.Slug != "demo" || sp.Group != "" {
+		t.Fatalf("ParseHost under longest match = %+v, err=%v", sp, err)
+	}
+}
+
 func TestIsBaseHost(t *testing.T) {
 	if !IsBaseHost("example.com", base) {
 		t.Fatal("apex not recognized")

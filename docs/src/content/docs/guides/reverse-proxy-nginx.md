@@ -63,6 +63,15 @@ can render [live thumbnails](/gotifacts/guides/portal-thumbnails/):
 add_header Content-Security-Policy "frame-ancestors https://example.com" always;
 ```
 
+Keep the `frame-ancestors` value pointed at the canonical
+`GOTIFACTS_BASE_DOMAIN`, since the portal is served from there.
+
+To serve the instance on additional
+[alias domains](/gotifacts/reference/configuration/), list them in
+`GOTIFACTS_ALIAS_DOMAINS` and repeat the apex + wildcard `server` blocks for each
+domain (with its own certificate). gotifacts serves the same sites under every
+domain.
+
 ## MCP endpoints
 
 If you enable the [MCP connector](/gotifacts/guides/connect-claude-mcp/), the

@@ -25,7 +25,12 @@ func NewSiteServer(cfg *config.Config) *SiteServer {
 // ServeHTTP maps the request host to a site directory and serves static files.
 // There is no SPA fallback: a missing file yields a clean 404.
 func (s *SiteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	sp, err := router.ParseHost(r.Host, s.cfg.BaseDomain)
+	base, ok := router.MatchDomain(r.Host, s.cfg.AllDomains())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	sp, err := router.ParseHost(r.Host, base)
 	if err != nil {
 		http.NotFound(w, r)
 		return

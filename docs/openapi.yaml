@@ -21,7 +21,10 @@ info:
     url: https://github.com/lmgarret/gotifacts/blob/main/LICENSE
 servers:
   - url: https://example.com
-    description: Your gotifacts apex (base domain), fronted by your reverse proxy.
+    description: >-
+      Your gotifacts apex (canonical base domain), fronted by your reverse proxy.
+      Any configured alias domains serve the same API and sites, but responses
+      (e.g. base_domain) always report the canonical domain.
 
 tags:
   - name: Management

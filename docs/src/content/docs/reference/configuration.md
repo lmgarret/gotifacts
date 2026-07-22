@@ -19,7 +19,8 @@ the repo.
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `GOTIFACTS_LISTEN_ADDR` | `:8080` | HTTP bind address (plain HTTP; TLS is the proxy's job). |
-| `GOTIFACTS_BASE_DOMAIN` | — | **Required.** Apex domain; sites are served on its sub-labels. |
+| `GOTIFACTS_BASE_DOMAIN` | — | **Required.** Canonical apex domain; sites are served on its sub-labels. All generated URLs (site links, OAuth issuer, `/api/me` `base_domain`) use it. |
+| `GOTIFACTS_ALIAS_DOMAINS` | — | Comma-separated extra apex domains that serve the **same** sites as the canonical domain. Publishing once makes a site reachable under every domain; generated URLs still use `GOTIFACTS_BASE_DOMAIN`. Each domain needs its own apex + wildcard routing and TLS at your proxy. |
 
 ## Storage
 

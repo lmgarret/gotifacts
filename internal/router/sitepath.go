@@ -162,6 +162,31 @@ func IsBaseHost(host, base string) bool {
 	return normalizeHost(host) == strings.ToLower(base)
 }
 
+// MatchDomain returns the configured domain that host is the apex of, or a
+// sub-domain of, and whether any matched. When domains overlap (one is a suffix
+// of another), it prefers the longest — most specific — match so the correct
+// sub-labels are stripped. Callers pass the result as the base to [ParseHost]
+// and [IsBaseHost].
+func MatchDomain(host string, domains []string) (string, bool) {
+	host = normalizeHost(host)
+	if host == "" {
+		return "", false
+	}
+	var best string
+	for _, d := range domains {
+		d = strings.ToLower(d)
+		if d == "" {
+			continue
+		}
+		if host == d || strings.HasSuffix(host, "."+d) {
+			if len(d) > len(best) {
+				best = d
+			}
+		}
+	}
+	return best, best != ""
+}
+
 // ParseHost maps a request host to a SitePath, validating syntax and depth.
 func ParseHost(host, base string) (SitePath, error) {
 	labels, err := hostLabels(host, base)
