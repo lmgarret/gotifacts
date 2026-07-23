@@ -44,18 +44,9 @@ func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request, p *auth.P
 	}
 	segs := strings.Split(rest, "/")
 
-	// A trailing "/favicon" segment is a per-site sub-resource that streams the
-	// cached favicon bytes. Like "revisions" below, "favicon" is reserved.
-	if len(segs) >= 2 && segs[len(segs)-1] == "favicon" {
-		siteSegs := segs[:len(segs)-1]
-		slug := siteSegs[len(siteSegs)-1]
-		group := strings.Join(siteSegs[:len(siteSegs)-1], "/")
-		sp, err := router.NewSitePath(group, slug)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid site path")
-			return
-		}
-		s.serveFavicon(w, r, sp, p.Admin)
+	// A trailing "/favicon" segment is a per-site sub-resource (reserved, like
+	// "revisions") that streams the cached favicon bytes.
+	if s.tryServeFavicon(w, r, segs, p.Admin) {
 		return
 	}
 
@@ -121,6 +112,25 @@ func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request, p *auth.P
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// tryServeFavicon handles a trailing "/favicon" sub-resource request, returning
+// true when it took ownership of the response. "favicon" is reserved on the site
+// path the same way "revisions" is.
+func (s *Server) tryServeFavicon(w http.ResponseWriter, r *http.Request, segs []string, admin bool) bool {
+	if len(segs) < 2 || segs[len(segs)-1] != "favicon" {
+		return false
+	}
+	siteSegs := segs[:len(segs)-1]
+	slug := siteSegs[len(siteSegs)-1]
+	group := strings.Join(siteSegs[:len(siteSegs)-1], "/")
+	sp, err := router.NewSitePath(group, slug)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid site path")
+		return true
+	}
+	s.serveFavicon(w, r, sp, admin)
+	return true
 }
 
 // serveFavicon streams a site's cached favicon bytes, applying the same
