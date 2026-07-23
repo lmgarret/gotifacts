@@ -64,6 +64,7 @@ export function KeysView() {
 
       {error && <p className="error">{error}</p>}
 
+      <div className="table-wrap">
       <table className="keytable">
         <thead>
           <tr>
@@ -127,6 +128,7 @@ export function KeysView() {
           )}
         </tbody>
       </table>
+      </div>
 
       {creating && (
         <KeyCreateModal

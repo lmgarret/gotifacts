@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import type { FileNode } from "../api";
 import { formatSize } from "../format";
 
@@ -7,6 +8,14 @@ interface Props {
   depth: number;
   // downloadURL returns the href for downloading a file at the given path.
   downloadURL: (path: string) => string;
+}
+
+// Indentation is expressed as a --indent step count consumed by CSS (see
+// .file-row / .file-dir-header), so the per-level width can shrink on small
+// screens. The count is capped so very deep trees don't crowd out the filename.
+const MAX_INDENT = 8;
+function indentStyle(depth: number): CSSProperties {
+  return { "--indent": Math.min(depth, MAX_INDENT) } as CSSProperties;
 }
 
 // FileTree renders a revision's files as a collapsible tree. The root node
@@ -28,7 +37,7 @@ export function FileTree({ node, depth, downloadURL }: Props) {
   return node.dir ? (
     <FileDir node={node} depth={depth} downloadURL={downloadURL} />
   ) : (
-    <li className="file-row" style={{ paddingLeft: `${depth * 1}rem` }}>
+    <li className="file-row" style={indentStyle(depth)}>
       <span className="file-name">{node.name}</span>
       {node.size != null && <span className="file-size muted">{formatSize(node.size)}</span>}
       <a className="file-dl" href={downloadURL(node.path)} download>
@@ -46,7 +55,7 @@ function FileDir({ node, depth, downloadURL }: Props) {
         className="file-dir-header"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        style={{ paddingLeft: `${depth * 1}rem` }}
+        style={indentStyle(depth)}
       >
         <span className="chevron">{open ? "▾" : "▸"}</span>
         <span className="file-name">{node.name}</span>

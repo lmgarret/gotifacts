@@ -79,11 +79,11 @@ export function SitesTable({ sites, base, onSelect }: Props) {
     }
   };
 
-  const header = (key: SortKey, label: string) => {
+  const header = (key: SortKey, label: string, colClass?: string) => {
     const active = key === sortKey;
     return (
       <th
-        className={`sortable${active ? " active" : ""}`}
+        className={`sortable${active ? " active" : ""}${colClass ? ` ${colClass}` : ""}`}
         aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
       >
         <button onClick={() => toggle(key)}>
@@ -103,11 +103,11 @@ export function SitesTable({ sites, base, onSelect }: Props) {
           <tr>
             <th className="col-icon" aria-label="Favicon" />
             {header("title", "Title")}
-            {header("group", "Group")}
-            {header("slug", "Slug")}
+            {header("group", "Group", "col-group")}
+            {header("slug", "Slug", "col-slug")}
             {header("date", "Date")}
-            {header("updated", "Updated")}
-            {header("size", "Size")}
+            {header("updated", "Updated", "col-updated")}
+            {header("size", "Size", "col-size")}
             <th className="col-tags">Tags</th>
             <th className="col-link" aria-label="Website" />
           </tr>
@@ -134,7 +134,7 @@ export function SitesTable({ sites, base, onSelect }: Props) {
                 <td className="col-group">{s.group || "—"}</td>
                 <td className="col-slug">{s.slug}</td>
                 <td className="col-date">{fmtDate(s.date)}</td>
-                <td className="col-date">{fmtDate(s.updated_at)}</td>
+                <td className="col-date col-updated">{fmtDate(s.updated_at)}</td>
                 <td className="col-size">{formatSize(s.size)}</td>
                 <td className="col-tags">
                   <div className="meta">

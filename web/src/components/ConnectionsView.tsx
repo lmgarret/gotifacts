@@ -45,6 +45,7 @@ export function ConnectionsView() {
 
       {error && <p className="error">{error}</p>}
 
+      <div className="table-wrap">
       <table className="keytable">
         <thead>
           <tr>
@@ -100,6 +101,7 @@ export function ConnectionsView() {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
