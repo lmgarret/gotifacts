@@ -18,7 +18,7 @@ export function SiteCard({ site, base, onSelect }: Props) {
       <Thumbnail url={url} preview={site.preview} title={title} />
       <div className="card-body" onClick={() => onSelect(site)} role="button" tabIndex={0}>
         <h3>
-          <Favicon url={url} title={title} />
+          <Favicon site={site} title={title} />
           <span>{title}</span>
         </h3>
         {site.description && <p className="desc">{site.description}</p>}

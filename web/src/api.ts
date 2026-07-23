@@ -22,6 +22,9 @@ export interface Site {
   preview?: string;
   hidden: boolean;
   size: number;
+  // has_favicon is true when the server has a cached favicon for the site,
+  // fetched via faviconURL(). Absent on older servers that predate the feature.
+  has_favicon?: boolean;
   created_at: string;
   updated_at: string;
   deleted_at?: string;
@@ -269,4 +272,10 @@ export const api = {
 
 function sitePath(group: string, slug: string): string {
   return group ? `${group}/${slug}` : slug;
+}
+
+// faviconURL is the same-origin apex API path that streams a site's cached
+// favicon bytes (used as an <img> src, not fetched here).
+export function faviconURL(site: Pick<Site, "group" | "slug">): string {
+  return `/api/sites/${sitePath(site.group, site.slug)}/favicon`;
 }

@@ -44,6 +44,12 @@ func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request, p *auth.P
 	}
 	segs := strings.Split(rest, "/")
 
+	// A trailing "/favicon" segment is a per-site sub-resource (reserved, like
+	// "revisions") that streams the cached favicon bytes.
+	if s.tryServeFavicon(w, r, segs, p.Admin) {
+		return
+	}
+
 	idx := -1
 	for i, seg := range segs {
 		if seg == "revisions" {
@@ -106,6 +112,56 @@ func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request, p *auth.P
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// tryServeFavicon handles a trailing "/favicon" sub-resource request, returning
+// true when it took ownership of the response. "favicon" is reserved on the site
+// path the same way "revisions" is.
+func (s *Server) tryServeFavicon(w http.ResponseWriter, r *http.Request, segs []string, admin bool) bool {
+	if len(segs) < 2 || segs[len(segs)-1] != "favicon" {
+		return false
+	}
+	siteSegs := segs[:len(segs)-1]
+	slug := siteSegs[len(siteSegs)-1]
+	group := strings.Join(siteSegs[:len(siteSegs)-1], "/")
+	sp, err := router.NewSitePath(group, slug)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid site path")
+		return true
+	}
+	s.serveFavicon(w, r, sp, admin)
+	return true
+}
+
+// serveFavicon streams a site's cached favicon bytes, applying the same
+// hidden-site visibility rule as the metadata endpoint (hidden sites are
+// invisible to non-admins). It 404s when the site has no cached favicon.
+func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request, sp router.SitePath, admin bool) {
+	site, err := s.store.GetSite(r.Context(), sp.Group, sp.Slug)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read site")
+		return
+	}
+	if site.Hidden && !admin {
+		http.NotFound(w, r)
+		return
+	}
+	data, contentType, err := s.store.GetSiteFavicon(r.Context(), sp.Group, sp.Slug)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read favicon")
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(data)
 }
 
 func (s *Server) listRevisions(w http.ResponseWriter, _ *http.Request, sp router.SitePath) {

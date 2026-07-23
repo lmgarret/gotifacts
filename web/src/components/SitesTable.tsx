@@ -125,7 +125,7 @@ export function SitesTable({ sites, base, onSelect }: Props) {
                 tabIndex={0}
               >
                 <td className="col-icon">
-                  <Favicon url={url} title={title} />
+                  <Favicon site={s} title={title} />
                 </td>
                 <td className="col-title">
                   <span className="t-title">{title}</span>

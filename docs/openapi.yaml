@@ -244,6 +244,29 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/sites/{path}/favicon:
+    parameters:
+      - $ref: "#/components/parameters/SitePath"
+    get:
+      tags: [Management]
+      summary: Fetch a site's favicon
+      description: |
+        Streams the site's cached favicon bytes with its detected MIME type and
+        `Cache-Control: public, max-age=3600`. The favicon is detected from the
+        published `index.html` at publish time (see the `has_favicon` field on
+        the Site schema). Available to any authenticated user; hidden sites are
+        visible only to admins. Returns `404` when the site has no favicon.
+      security:
+        - forwardAuth: []
+      responses:
+        "200":
+          description: The favicon image bytes.
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/sites/{path}/revisions:
     parameters:
       - $ref: "#/components/parameters/SitePath"
@@ -611,6 +634,12 @@ components:
         preview: { type: string, description: "Optional preview image URL used by the portal instead of a live iframe." }
         hidden: { type: boolean }
         size: { type: integer, format: int64, description: "Total on-disk size in bytes of the current revision's files." }
+        has_favicon:
+          type: boolean
+          description: |
+            True when the server has a cached favicon for the site, detected
+            from the published `index.html` at publish time. Fetch the bytes from
+            `GET /api/sites/{path}/favicon`.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         deleted_at:

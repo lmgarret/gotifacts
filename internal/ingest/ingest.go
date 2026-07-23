@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -132,6 +133,15 @@ func (p *Publisher) Publish(ctx context.Context, meta Meta, kind Kind, r io.Read
 	if err != nil {
 		return nil, nil, fmt.Errorf("registry upsert: %w", err)
 	}
+
+	// Detect and cache the site's favicon from the freshly published content.
+	// Best-effort: a favicon problem never fails an otherwise-valid publish, and
+	// an empty result clears any stale favicon from a previous publish.
+	data, ct := detectFavicon(live)
+	if err := p.store.SetSiteFavicon(ctx, sp.Group, sp.Slug, data, ct); err == nil {
+		site.HasFavicon = len(data) > 0
+	}
+
 	return &Result{
 		URL:       sp.URL(p.cfg.BaseDomain),
 		Group:     sp.Group,
@@ -324,6 +334,43 @@ func (p *Publisher) BackfillSizes(ctx context.Context) error {
 	return nil
 }
 
+// BackfillFavicons re-detects and caches the favicon for every live site by
+// reading its content directory. It is idempotent — a site whose detected
+// favicon already matches what is stored is left untouched — so it is safe to
+// re-run. With dryRun set it reports what would change without writing. It
+// returns the number of sites scanned and the number whose favicon changed.
+func (p *Publisher) BackfillFavicons(ctx context.Context, dryRun bool) (scanned, updated int, err error) {
+	sites, err := p.store.ListSites(ctx, store.ListFilter{IncludeHide: true})
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, site := range sites {
+		sp, err := router.NewSitePath(site.Group, site.Slug)
+		if err != nil {
+			continue
+		}
+		scanned++
+		content := filepath.Join(p.cfg.SitesDir(), filepath.FromSlash(sp.ContentDir()))
+		data, ct := detectFavicon(content)
+
+		curData, curCT, gerr := p.store.GetSiteFavicon(ctx, site.Group, site.Slug)
+		if gerr != nil && !errors.Is(gerr, store.ErrNotFound) {
+			return scanned, updated, gerr
+		}
+		if bytes.Equal(curData, data) && curCT == ct {
+			continue
+		}
+		updated++
+		if dryRun {
+			continue
+		}
+		if err := p.store.SetSiteFavicon(ctx, site.Group, site.Slug, data, ct); err != nil {
+			return scanned, updated, err
+		}
+	}
+	return scanned, updated, nil
+}
+
 // Rollback restores the most recent archived version of a site, swapping the
 // current live content into the version history.
 func (p *Publisher) Rollback(ctx context.Context, sp router.SitePath) error {
@@ -356,7 +403,12 @@ func (p *Publisher) Rollback(ctx context.Context, sp router.SitePath) error {
 		return err
 	}
 	size, _ := dirSize(live)
-	return p.store.SetSiteSize(ctx, sp.Group, sp.Slug, size)
+	if err := p.store.SetSiteSize(ctx, sp.Group, sp.Slug, size); err != nil {
+		return err
+	}
+	// Refresh the cached favicon so it tracks the rolled-back content.
+	data, ct := detectFavicon(live)
+	return p.store.SetSiteFavicon(ctx, sp.Group, sp.Slug, data, ct)
 }
 
 // readerAtSize adapts a content stream into the io.ReaderAt + size that

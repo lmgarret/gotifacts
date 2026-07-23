@@ -20,6 +20,7 @@ Commands:
   mcp connections                         List active MCP connections
   mcp revoke --id ID                      Revoke an MCP connection
   migrate-layout [--dry-run]              Relocate site content into @site leaves
+  backfill-favicons [--dry-run]           Detect and cache favicons for existing sites
   version                                 Print the version
   help                                    Show usage
 ```
@@ -120,3 +121,24 @@ Any content that isn't backed by a registry row (for example a stray
 sub-directory that was accidentally nested inside another site) is folded into
 that site's `@site` as its own content; re-publish it as a proper site
 afterwards if it should be its own entry.
+
+## `backfill-favicons`
+
+Detects and caches a favicon for every published site by re-reading each site's
+`index.html`. New publishes cache their favicon automatically; run this once
+after upgrading to populate favicons for sites that were published before the
+feature existed. The command is **idempotent** — a site whose detected favicon
+already matches what is stored is left untouched — so it is safe to re-run.
+
+| Flag | Description |
+| --- | --- |
+| `--dry-run`, `-n` | Report how many favicons would change without writing anything. |
+
+The favicon is taken from the site's declared `<link rel="icon">` (preferring a
+scalable SVG, then the largest raster; inline `data:` URIs are decoded), falling
+back to a bundled `/favicon.ico`. External icon URLs are never fetched. It reads
+the data volume, so run it alongside the server or during a brief window:
+
+```sh
+docker compose run --rm gotifacts backfill-favicons
+```
