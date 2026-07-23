@@ -1,22 +1,20 @@
 import { useState } from "react";
+import type { Site } from "../api";
+import { faviconURL } from "../api";
 
 interface Props {
-  url: string;
+  site: Pick<Site, "group" | "slug" | "has_favicon">;
   title: string;
 }
 
-// Icon paths to try, in order. Sites rarely ship a root favicon.ico; many
-// declare an SVG or PNG instead (gotifacts' own pages use favicon.svg), so we
-// probe a small list of common locations before giving up.
-const CANDIDATES = ["/favicon.ico", "/favicon.svg", "/favicon.png", "/apple-touch-icon.png"];
-
-// Favicon shows a site's favicon (served from its own origin), falling back to
-// a letter monogram once every candidate path fails to load.
-export function Favicon({ url, title }: Props) {
-  const [idx, setIdx] = useState(0);
+// Favicon shows a site's favicon — detected server-side at publish time and
+// served from the apex API — falling back to a letter monogram when the site
+// has no cached favicon or the image fails to load.
+export function Favicon({ site, title }: Props) {
+  const [failed, setFailed] = useState(false);
   const letter = (title.trim()[0] || "?").toUpperCase();
 
-  if (idx >= CANDIDATES.length) {
+  if (!site.has_favicon || failed) {
     return (
       <span className="favicon favicon-fallback" aria-hidden="true">
         {letter}
@@ -27,15 +25,12 @@ export function Favicon({ url, title }: Props) {
   return (
     <img
       className="favicon"
-      // Key by attempt so React swaps the element (and reissues the request)
-      // when we advance to the next candidate after an error.
-      key={idx}
-      src={`${url}${CANDIDATES[idx]}`}
+      src={faviconURL(site)}
       alt=""
       width={16}
       height={16}
       loading="lazy"
-      onError={() => setIdx((i) => i + 1)}
+      onError={() => setFailed(true)}
     />
   );
 }

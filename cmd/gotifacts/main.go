@@ -40,6 +40,8 @@ func main() {
 		err = runMCP(ctx, args)
 	case "migrate-layout":
 		err = runMigrateLayout(ctx, args)
+	case "backfill-favicons":
+		err = runBackfillFavicons(ctx, args)
 	case "version", "--version", "-version":
 		fmt.Printf("gotifacts %s (commit %s, built %s)\n", version, commit, date)
 	case "help", "-h", "--help":
@@ -66,6 +68,7 @@ Commands:
   mcp connections                         List active MCP connections
   mcp revoke --id ID                      Revoke an MCP connection
   migrate-layout [--dry-run]              Relocate site content into @site leaves
+  backfill-favicons [--dry-run]           Detect and cache favicons for existing sites
 
 Configuration is via environment variables; see .env.example.
 `)

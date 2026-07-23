@@ -841,6 +841,20 @@ main {
 /* Site page (dedicated per-site view with tabs) */
 .sitepage-head h2 {
     margin-bottom: 0.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+}
+
+.sitepage-head h2 .favicon {
+    width: 20px;
+    height: 20px;
+}
+
+.sitepage-head h2 span {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .sitepage .back {

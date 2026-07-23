@@ -4,6 +4,7 @@ import { siteURL } from "../sitehost";
 import { formatSize } from "../format";
 import { FilesTab } from "./FilesTab";
 import { SiteEditModal } from "./SiteEditModal";
+import { Favicon } from "./Favicon";
 
 export type Tab = "overview" | "files";
 
@@ -76,7 +77,10 @@ export function SitePage({
         <button className="ghost back" onClick={onBack}>
           ← Back
         </button>
-        <h2>{site.title || site.slug}</h2>
+        <h2>
+          <Favicon site={site} title={site.title || site.slug} />
+          <span>{site.title || site.slug}</span>
+        </h2>
         <p className="muted">
           <a href={url} target="_blank" rel="noopener noreferrer">
             {url.replace("https://", "")}

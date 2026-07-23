@@ -15,20 +15,24 @@ var ErrNotFound = errors.New("not found")
 
 // Site is a registered static site.
 type Site struct {
-	ID          int64      `json:"id"`
-	Group       string     `json:"group"`
-	Slug        string     `json:"slug"`
-	Title       string     `json:"title"`
-	Description string     `json:"description"`
-	Date        string     `json:"date,omitempty"`
-	Tags        []string   `json:"tags"`
-	Repo        string     `json:"repo,omitempty"`
-	Preview     string     `json:"preview,omitempty"`
-	Hidden      bool       `json:"hidden"`
-	Size        int64      `json:"size"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
+	ID          int64    `json:"id"`
+	Group       string   `json:"group"`
+	Slug        string   `json:"slug"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Date        string   `json:"date,omitempty"`
+	Tags        []string `json:"tags"`
+	Repo        string   `json:"repo,omitempty"`
+	Preview     string   `json:"preview,omitempty"`
+	Hidden      bool     `json:"hidden"`
+	Size        int64    `json:"size"`
+	// HasFavicon reports whether a cached favicon exists for the site. The bytes
+	// themselves are fetched separately via GetSiteFavicon and are never carried
+	// in list queries or JSON — only this presence flag is exposed.
+	HasFavicon bool       `json:"has_favicon"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
 }
 
 // SiteInput carries the mutable metadata for an upsert or patch.
@@ -135,11 +139,49 @@ func (s *Store) SetSiteSize(ctx context.Context, group, slug string, size int64)
 	return err
 }
 
+// SetSiteFavicon stores (or clears) the cached favicon for an existing site.
+// Passing empty data with an empty contentType clears it, which is what the
+// publish path does when a re-published site no longer declares an icon.
+func (s *Store) SetSiteFavicon(ctx context.Context, group, slug string, data []byte, contentType string) error {
+	// Normalize the "no favicon" case so HasFavicon (derived from favicon_type)
+	// is consistent: an empty type always means no favicon, regardless of bytes.
+	if len(data) == 0 {
+		contentType = ""
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sites SET favicon=?, favicon_type=? WHERE group_path=? AND slug=?`,
+		data, contentType, group, slug)
+	return err
+}
+
+// GetSiteFavicon returns the cached favicon bytes and MIME content-type for the
+// site at (group, slug). It returns ErrNotFound when the site does not exist or
+// has no cached favicon. Soft-deleted sites are not served.
+func (s *Store) GetSiteFavicon(ctx context.Context, group, slug string) ([]byte, string, error) {
+	var (
+		data        []byte
+		contentType string
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT favicon, favicon_type FROM sites WHERE group_path=? AND slug=? AND deleted_at IS NULL`,
+		group, slug).Scan(&data, &contentType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", ErrNotFound
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) == 0 || contentType == "" {
+		return nil, "", ErrNotFound
+	}
+	return data, contentType, nil
+}
+
 // GetSite returns the site at (group, slug) or ErrNotFound.
 // Soft-deleted sites are not returned; use ListDeletedBefore for purge access.
 func (s *Store) GetSite(ctx context.Context, group, slug string) (*Site, error) {
 	row := s.db.QueryRowContext(ctx, `
-        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at, favicon_type
         FROM sites WHERE group_path=? AND slug=? AND deleted_at IS NULL`, group, slug)
 	return scanSite(row)
 }
@@ -179,7 +221,7 @@ func (s *Store) DeleteSite(ctx context.Context, group, slug string) error {
 // Used by the admin trash view.
 func (s *Store) ListDeletedSites(ctx context.Context) ([]Site, error) {
 	rows, err := s.db.QueryContext(ctx, `
-        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at, favicon_type
         FROM sites WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
 	if err != nil {
 		return nil, err
@@ -233,7 +275,7 @@ func (s *Store) PurgeDeletedSite(ctx context.Context, group, slug string) error 
 // before the given cutoff. Used by the background purge job.
 func (s *Store) ListDeletedBefore(ctx context.Context, cutoff time.Time) ([]Site, error) {
 	rows, err := s.db.QueryContext(ctx, `
-        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at
+        SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at, favicon_type
         FROM sites WHERE deleted_at IS NOT NULL AND deleted_at <= ?`,
 		cutoff.UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -286,7 +328,7 @@ func (s *Store) ListSites(ctx context.Context, f ListFilter) ([]Site, error) {
 		clauses = append(clauses, `EXISTS (SELECT 1 FROM json_each(sites.tags) WHERE json_each.value = ?)`)
 		args = append(args, f.Tag)
 	}
-	q := `SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at FROM sites`
+	q := `SELECT id, group_path, slug, title, description, date, tags, repo, preview, hidden, size, created_at, updated_at, deleted_at, favicon_type FROM sites`
 	if len(clauses) > 0 {
 		q += " WHERE " + strings.Join(clauses, " AND ")
 	}
@@ -323,15 +365,16 @@ type scanner interface {
 
 func scanSite(row scanner) (*Site, error) {
 	var (
-		s         Site
-		tagsJSON  string
-		hidden    int
-		created   string
-		updated   string
-		deletedAt *string
+		s           Site
+		tagsJSON    string
+		hidden      int
+		created     string
+		updated     string
+		deletedAt   *string
+		faviconType string
 	)
 	err := row.Scan(&s.ID, &s.Group, &s.Slug, &s.Title, &s.Description, &s.Date,
-		&tagsJSON, &s.Repo, &s.Preview, &hidden, &s.Size, &created, &updated, &deletedAt)
+		&tagsJSON, &s.Repo, &s.Preview, &hidden, &s.Size, &created, &updated, &deletedAt, &faviconType)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -339,6 +382,7 @@ func scanSite(row scanner) (*Site, error) {
 		return nil, err
 	}
 	s.Hidden = hidden != 0
+	s.HasFavicon = faviconType != ""
 	if err := json.Unmarshal([]byte(tagsJSON), &s.Tags); err != nil || s.Tags == nil {
 		s.Tags = []string{}
 	}
