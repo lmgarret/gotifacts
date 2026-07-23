@@ -435,7 +435,10 @@ main {
 .table-wrap {
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    overflow: hidden;
+    /* Scroll horizontally when the table is wider than the viewport (mobile)
+       instead of clipping it; the radius still clips corners. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     background: var(--surface);
     box-shadow: var(--shadow);
     margin: 0.75rem 0;
@@ -848,6 +851,9 @@ main {
 
 .details dd {
     margin: 0;
+    /* Long repo/host URLs have no spaces; let them wrap instead of overflowing. */
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .actions {
@@ -860,6 +866,11 @@ main {
 /* Site page (dedicated per-site view with tabs) */
 .sitepage-head h2 {
     margin-bottom: 0.2rem;
+}
+
+/* The host link under the title is a spaceless URL; wrap it on narrow screens. */
+.sitepage-head {
+    overflow-wrap: anywhere;
 }
 
 .sitepage .back {
@@ -925,6 +936,13 @@ a.button:hover {
     margin: 0;
 }
 
+/* Let the native revision select shrink instead of growing to its longest
+   option label (which overflows on narrow screens). */
+.files-toolbar select {
+    min-width: 0;
+    max-width: 100%;
+}
+
 .filetree {
     list-style: none;
     margin: 0;
@@ -939,6 +957,9 @@ a.button:hover {
     gap: 0.5rem;
     width: 100%;
     padding: 0.3rem 0.4rem;
+    /* Indent per tree level; --indent (capped) is set inline, the step shrinks
+       on mobile via the breakpoint below. */
+    padding-left: calc(0.4rem + var(--indent, 0) * var(--file-indent-step, 1rem));
 }
 
 .file-dir-header {
@@ -1191,6 +1212,7 @@ button.ghost {
 
 .token-field {
     flex: 1 1 auto;
+    min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.9rem;
     background: var(--bg);
@@ -1273,7 +1295,9 @@ button.ghost {
     z-index: 20;
     top: calc(100% + 2px);
     left: 0;
-    min-width: 18rem;
+    /* Cap to the container so the dropdown never overflows a narrow modal. */
+    min-width: min(18rem, 100%);
+    max-width: 100%;
     max-height: 14rem;
     overflow-y: auto;
     margin: 0;
@@ -1379,11 +1403,13 @@ button.ghost {
 
 .field-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.8rem;
 }
 
 .field-row .field {
-    flex: 1 1 0;
+    /* Basis wide enough that paired fields stack once the modal gets narrow. */
+    flex: 1 1 12rem;
     min-width: 0;
 }
 
@@ -1457,4 +1483,59 @@ button.ghost {
     display: flex;
     gap: 0.4rem;
     justify-content: flex-end;
+}
+
+/*
+ * ── Mobile breakpoint ───────────────────────────────────────────────────────
+ * 40rem (640px) is the project's single, canonical mobile breakpoint. Reuse it
+ * for all responsive tweaks rather than introducing per-component widths, so the
+ * UI stays consistent and predictable. New components should be usable at this
+ * width (verify at ~375px) and add rules here if they need mobile adjustments.
+ */
+@media (max-width: 40rem) {
+    main {
+        padding: 1.25rem 1rem 3rem;
+    }
+
+    /* Filters toolbar: let the search claim its own row and the selects share
+       the next one; drop the auto margin that shoves the count around on wrap. */
+    .toolbar input[type="search"] {
+        flex-basis: 100%;
+    }
+
+    .toolbar select {
+        flex: 1 1 8rem;
+    }
+
+    .toolbar .count {
+        margin-left: 0;
+    }
+
+    /* Sites table: hide low-priority columns so the essentials fit; the wrapper
+       still scrolls horizontally if the remaining columns overflow. */
+    .sites-table .col-group,
+    .sites-table .col-slug,
+    .sites-table .col-size {
+        display: none;
+    }
+
+    .sites-table th,
+    .sites-table td {
+        padding: 0.45rem 0.5rem;
+    }
+
+    .sites-table .t-desc {
+        max-width: 12rem;
+    }
+
+    /* Revision picker: give the long-labelled select a full-width row. */
+    .files-toolbar select {
+        flex: 1 1 100%;
+    }
+
+    /* Tighter per-level file-tree indent so filenames keep room on small screens. */
+    .file-row,
+    .file-dir-header {
+        --file-indent-step: 0.5rem;
+    }
 }

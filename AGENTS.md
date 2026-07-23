@@ -68,6 +68,17 @@ cd docs && npm run build   # renders the spec + validates internal links
   update the `starlight-links-validator` `exclude` entries, and find-replace the
   `/gotifacts/` link prefix across `docs/src/content/`.
 
+## Web UI conventions
+
+- **Responsive / mobile:** every UI change must stay usable on a phone — verify
+  at ~375px. Styling lives in the single global `web/src/styles.css` (plain CSS
+  with `:root` custom-property tokens; no framework). Prefer fluid techniques
+  (`flex-wrap`, `width`/`max-width: 100%`, ellipsis or `overflow-wrap`
+  truncation, `min-width: 0` on flex children) and reuse the single canonical
+  mobile breakpoint `@media (max-width: 40rem)` for adjustments rather than
+  inventing ad-hoc widths. Wide tables go inside a `.table-wrap` (`overflow-x:
+  auto`) so they scroll instead of clipping.
+
 ## Commit / PR
 
 - Follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): description` — e.g. `feat(api): add pagination`, `fix(store): handle nil connection`, `docs: update openapi spec`. Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
