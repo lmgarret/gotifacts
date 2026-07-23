@@ -119,6 +119,14 @@ export function App() {
         >
           <Logo />
         </div>
+        <a
+          className="docs-link"
+          href="https://lmgarret.github.io/gotifacts/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Docs ↗
+        </a>
         <AccountMenu me={me} view={view} trashCount={trashCount} onNavigate={navigate} />
       </header>
       <main>
