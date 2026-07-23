@@ -92,6 +92,7 @@ func runServe(ctx context.Context, _ []string) error {
 	log.Info("gotifacts listening",
 		"addr", cfg.ListenAddr,
 		"base_domain", cfg.BaseDomain,
+		"alias_domains", len(cfg.AliasDomains),
 		"versioning", cfg.VersioningEnabled,
 		"trusted_proxies", len(cfg.TrustedProxies),
 		"admin_users", len(cfg.AdminUsers))

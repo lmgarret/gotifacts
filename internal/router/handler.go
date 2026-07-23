@@ -19,9 +19,11 @@ func NewDispatch(cfg *config.Config, apex, sites http.Handler) *Dispatch {
 	return &Dispatch{cfg: cfg, apex: apex, sites: sites}
 }
 
-// ServeHTTP dispatches by host.
+// ServeHTTP dispatches by host. The apex of any configured domain (canonical or
+// alias) goes to the apex handler; every other host is served as static site
+// content, which 404s if the host is not under any configured domain.
 func (d *Dispatch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if IsBaseHost(r.Host, d.cfg.BaseDomain) {
+	if base, ok := MatchDomain(r.Host, d.cfg.AllDomains()); ok && IsBaseHost(r.Host, base) {
 		d.apex.ServeHTTP(w, r)
 		return
 	}

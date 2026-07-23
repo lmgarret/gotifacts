@@ -55,3 +55,33 @@ func TestSiteServerFlatAndGroupCoexist(t *testing.T) {
 		t.Fatalf("expected 404 for flat-host member file, got %d", w.Code)
 	}
 }
+
+// TestSiteServerAliasDomain verifies a site published once is served under both
+// the canonical domain and any alias, and that a host under no configured
+// domain 404s.
+func TestSiteServerAliasDomain(t *testing.T) {
+	cfg := &config.Config{
+		DataDir:      t.TempDir(),
+		BaseDomain:   "example.com",
+		AliasDomains: []string{"example.org"},
+	}
+	writeSite(t, cfg, "decks", "flat")
+	writeSite(t, cfg, "decks/pr-6", "preview")
+	srv := NewSiteServer(cfg)
+
+	// The same content is reachable on the canonical and the alias domain.
+	for _, host := range []string{"decks.example.com", "decks.example.org"} {
+		if w := get(t, srv, host, "/"); w.Code != http.StatusOK || w.Body.String() != "flat" {
+			t.Fatalf("%s: code=%d body=%q", host, w.Code, w.Body.String())
+		}
+	}
+	for _, host := range []string{"pr-6.decks.example.com", "pr-6.decks.example.org"} {
+		if w := get(t, srv, host, "/"); w.Code != http.StatusOK || w.Body.String() != "preview" {
+			t.Fatalf("%s: code=%d body=%q", host, w.Code, w.Body.String())
+		}
+	}
+	// A host under no configured domain has no site to serve.
+	if w := get(t, srv, "decks.unknown.example.net", "/"); w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unconfigured domain, got %d", w.Code)
+	}
+}

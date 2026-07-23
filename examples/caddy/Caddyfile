@@ -73,3 +73,21 @@ example.com {
 	reverse_proxy gotifacts:8080
 	header Content-Security-Policy "frame-ancestors https://example.com"
 }
+
+# === Alias domains (optional, GOTIFACTS_ALIAS_DOMAINS) =======================
+# To serve the same instance on a second domain, list it in
+# GOTIFACTS_ALIAS_DOMAINS and duplicate the apex + wildcard blocks above for it
+# (example.org, *.example.org, *.*.example.org). gotifacts serves the same sites
+# under both. Keep `frame-ancestors https://example.com` pointed at the
+# canonical GOTIFACTS_BASE_DOMAIN — the portal is served from there.
+#
+# example.org {
+# 	import strip_identity
+# 	# …same handle blocks as the canonical apex above…
+# 	reverse_proxy gotifacts:8080
+# }
+# *.example.org, *.*.example.org {
+# 	import strip_identity
+# 	reverse_proxy gotifacts:8080
+# 	header Content-Security-Policy "frame-ancestors https://example.com"
+# }

@@ -9,6 +9,12 @@ gotifacts routes purely by the request `Host`. The apex host (`==
 GOTIFACTS_BASE_DOMAIN`) serves the portal and APIs; every other host maps to a
 site directory.
 
+If you configure [`GOTIFACTS_ALIAS_DOMAINS`](/gotifacts/reference/configuration/),
+each alias apex and its sub-labels resolve through the **same** mapping to the
+**same** site tree, so a site published once is reachable under every configured
+domain. Generated URLs (site links, the OAuth issuer, `/api/me`) always use the
+canonical `GOTIFACTS_BASE_DOMAIN`.
+
 ## The mapping
 
 Strip `base_domain` from a host. The remaining sub-labels, read left→right, run

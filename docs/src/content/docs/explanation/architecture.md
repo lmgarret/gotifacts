@@ -57,14 +57,18 @@ gotifacts -> volume
 
 The service routes purely by the request `Host`:
 
-- **Apex host** (`== GOTIFACTS_BASE_DOMAIN`): serves the portal SPA, the
-  management API (`/api/*`), and the ingest API (`/ingest/*`).
+- **Apex host** (the canonical `GOTIFACTS_BASE_DOMAIN` or any
+  `GOTIFACTS_ALIAS_DOMAINS` entry): serves the portal SPA, the management API
+  (`/api/*`), and the ingest API (`/ingest/*`).
 - **Any other host**: maps the host to a site directory under `/data/sites/…`
   and serves static files.
 
 The host→directory mapping is the [URL ⇄ path
 convention](/gotifacts/reference/url-path-convention/). This is why no domains
-are hardcoded: the apex is configured, and everything else is derived from it.
+are hardcoded: the apex domains are configured, and everything else is derived
+from them. Alias domains share one site tree — a site published once is reachable
+under every configured domain — but generated URLs always use the canonical
+`GOTIFACTS_BASE_DOMAIN`, which is also the single OAuth issuer.
 
 ## Why a reverse proxy is mandatory
 

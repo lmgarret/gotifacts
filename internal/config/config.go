@@ -43,7 +43,13 @@ type Config struct {
 	// DBPath is the SQLite database file path.
 	DBPath string
 	// BaseDomain is the apex domain; sites live on sub-labels of it. Required.
+	// It is the canonical domain: all generated URLs (site URLs, the OAuth
+	// issuer, the /api/me base_domain) use it.
 	BaseDomain string
+	// AliasDomains are additional apex domains that serve the same sites as
+	// BaseDomain. They are recognized for request routing but never surfaced in
+	// generated URLs, which always use the canonical BaseDomain.
+	AliasDomains []string
 	// ForwardAuthHeader is the request header carrying the proxy-asserted user.
 	ForwardAuthHeader string
 	// AdminUsers are forward-auth principals granted admin scope.
@@ -83,6 +89,15 @@ type Config struct {
 // BaseURL returns the canonical https origin of the apex host. It is the OAuth
 // issuer and the base for MCP discovery URLs.
 func (c *Config) BaseURL() string { return "https://" + c.BaseDomain }
+
+// AllDomains returns every domain the instance answers on: the canonical
+// BaseDomain first, followed by any AliasDomains. Used for request routing.
+func (c *Config) AllDomains() []string {
+	domains := make([]string, 0, 1+len(c.AliasDomains))
+	domains = append(domains, c.BaseDomain)
+	domains = append(domains, c.AliasDomains...)
+	return domains
+}
 
 // MCPUserAllowed reports whether user may grant MCP OAuth consent. The allowlist
 // is GOTIFACTS_MCP_ALLOWED_USERS, falling back to the admin allowlist.
@@ -145,6 +160,7 @@ func Load() (*Config, error) {
 		ListenAddr:        envOr("GOTIFACTS_LISTEN_ADDR", DefaultListenAddr),
 		DataDir:           envOr("GOTIFACTS_DATA_DIR", DefaultDataDir),
 		BaseDomain:        strings.ToLower(strings.TrimSpace(os.Getenv("GOTIFACTS_BASE_DOMAIN"))),
+		AliasDomains:      lowerList(os.Getenv("GOTIFACTS_ALIAS_DOMAINS")),
 		ForwardAuthHeader: envOr("GOTIFACTS_FORWARD_AUTH_HEADER", DefaultForwardAuthHeader),
 		AdminUsers:        splitList(os.Getenv("GOTIFACTS_ADMIN_USERS")),
 		MaxUploadBytes:    DefaultMaxUploadBytes,
@@ -197,8 +213,21 @@ func (c *Config) Validate() []error {
 	var errs []error
 	if c.BaseDomain == "" {
 		errs = append(errs, fmt.Errorf("GOTIFACTS_BASE_DOMAIN is required"))
-	} else if strings.HasPrefix(c.BaseDomain, ".") || strings.Contains(c.BaseDomain, "..") {
+	} else if malformedDomain(c.BaseDomain) {
 		errs = append(errs, fmt.Errorf("GOTIFACTS_BASE_DOMAIN %q is malformed", c.BaseDomain))
+	}
+	seenDomain := map[string]bool{c.BaseDomain: true}
+	for _, d := range c.AliasDomains {
+		switch {
+		case malformedDomain(d):
+			errs = append(errs, fmt.Errorf("GOTIFACTS_ALIAS_DOMAINS %q is malformed", d))
+		case d == c.BaseDomain:
+			errs = append(errs, fmt.Errorf("GOTIFACTS_ALIAS_DOMAINS %q duplicates GOTIFACTS_BASE_DOMAIN", d))
+		case seenDomain[d]:
+			errs = append(errs, fmt.Errorf("GOTIFACTS_ALIAS_DOMAINS %q is listed more than once", d))
+		default:
+			seenDomain[d] = true
+		}
 	}
 	if c.ListenAddr == "" {
 		errs = append(errs, fmt.Errorf("GOTIFACTS_LISTEN_ADDR must not be empty"))
@@ -274,6 +303,22 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// lowerList is splitList with each entry lowercased, matching how BaseDomain is
+// normalized (host names are case-insensitive).
+func lowerList(v string) []string {
+	out := splitList(v)
+	for i := range out {
+		out[i] = strings.ToLower(out[i])
+	}
+	return out
+}
+
+// malformedDomain reports whether a domain string is syntactically unusable as
+// an apex (leading dot or an empty label). Matches the historic BaseDomain check.
+func malformedDomain(d string) bool {
+	return strings.HasPrefix(d, ".") || strings.Contains(d, "..")
 }
 
 func parseCIDRs(v string) ([]netip.Prefix, error) {
