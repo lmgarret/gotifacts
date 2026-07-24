@@ -199,7 +199,13 @@ export function Portal({ me, onOpenSite }: Props) {
       )}
 
       {loaded && layout === "table" && sites.length > 0 && (
-        <SitesTable sites={sites} base={me.base_domain} onSelect={onOpenSite} />
+        <SitesTable
+          sites={sites}
+          base={me.base_domain}
+          onSelect={onOpenSite}
+          onFilterGroup={(g) => setGroup((cur) => (cur === g ? "" : g))}
+          onFilterTag={(t) => setTag((cur) => (cur === t ? "" : t))}
+        />
       )}
 
 

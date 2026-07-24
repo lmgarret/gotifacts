@@ -701,6 +701,28 @@ main {
     white-space: nowrap;
 }
 
+/* Interactive pill: same shape as .tag but a real button that filters the list
+   when clicked (group and tag chips in the table). */
+.chip {
+    font-family: inherit;
+    font-size: 0.72rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.05rem 0.55rem;
+    color: var(--muted);
+    white-space: nowrap;
+    cursor: pointer;
+    line-height: 1.5;
+    transition: color 0.12s, border-color 0.12s;
+}
+
+.chip:hover,
+.chip:focus-visible {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
 .tag.warn {
     color: var(--warn);
     border-color: var(--warn);

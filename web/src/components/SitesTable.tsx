@@ -8,6 +8,10 @@ interface Props {
   sites: Site[];
   base: string;
   onSelect: (s: Site) => void;
+  // Clicking a group/tag chip filters the list by that value. Callers keep the
+  // active filter, so passing the current value back toggles it off.
+  onFilterGroup?: (group: string) => void;
+  onFilterTag?: (tag: string) => void;
 }
 
 type SortKey = "title" | "slug" | "group" | "date" | "updated" | "size";
@@ -57,7 +61,7 @@ function fmtDate(iso?: string): string {
 
 // SitesTable renders all sites in one flat, column-sortable table. Grouping is
 // represented by a sortable Group column rather than the collapsible tree.
-export function SitesTable({ sites, base, onSelect }: Props) {
+export function SitesTable({ sites, base, onSelect, onFilterGroup, onFilterTag }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [dir, setDir] = useState<Dir>("desc");
 
@@ -131,7 +135,23 @@ export function SitesTable({ sites, base, onSelect }: Props) {
                   <span className="t-title">{title}</span>
                   {s.description && <span className="t-desc">{s.description}</span>}
                 </td>
-                <td className="col-group">{s.group || "—"}</td>
+                <td className="col-group">
+                  {s.group ? (
+                    <button
+                      type="button"
+                      className="chip chip-group"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onFilterGroup?.(s.group);
+                      }}
+                      title={`Filter by group ${s.group}`}
+                    >
+                      {s.group}
+                    </button>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="col-slug">{s.slug}</td>
                 <td className="col-date">{fmtDate(s.date)}</td>
                 <td className="col-date col-updated">{fmtDate(s.updated_at)}</td>
@@ -139,9 +159,18 @@ export function SitesTable({ sites, base, onSelect }: Props) {
                 <td className="col-tags">
                   <div className="meta">
                     {s.tags?.map((t) => (
-                      <span key={t} className="tag">
+                      <button
+                        key={t}
+                        type="button"
+                        className="chip"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onFilterTag?.(t);
+                        }}
+                        title={`Filter by tag ${t}`}
+                      >
                         {t}
-                      </span>
+                      </button>
                     ))}
                     {s.hidden && <span className="tag warn">hidden</span>}
                   </div>
