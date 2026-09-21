@@ -9,7 +9,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- Stage 2: build the static Go binary ------------------------------------
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
