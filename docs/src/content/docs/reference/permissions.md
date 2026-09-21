@@ -21,6 +21,8 @@ capabilities to a target.
 
 Unpublish and purge are intentionally separate: `unpublish` takes a site offline (recoverable within the TTL), while `purge` is irreversible. Automation that only tears down previews should hold `unpublish`; automation that also needs to destroy data permanently should hold both.
 
+Over MCP, `purge_site` additionally asks the user to confirm before deleting anything, when the connected client supports elicitation — see [Confirming a purge](/gotifacts/guides/connect-claude-mcp/#confirming-a-purge). That is a prompt, not a permission: the grant is still what decides whether the call is allowed at all, and a client that cannot be prompted purges in one call.
+
 ## Roles
 
 | Role | Granted by | Can do |

@@ -76,6 +76,26 @@ and `GOTIFACTS_MAX_EXTRACT_ENTRIES` (10 000) — see the
 For the **API MCP connector** or **Claude Code**, the same server works with a
 token obtained through the OAuth flow.
 
+## Confirming a purge
+
+`purge_site` is the one irreversible tool: it destroys a quarantined site's
+files immediately, with no retention window left to recover from. So the server
+does not act on the first call. It answers with an *input request*, the client
+asks the user to confirm, and the call completes only once the answer comes
+back — all inside the same tool call, so the model sees one result, not two.
+
+Confirmation needs a client that can prompt, which it signals by advertising the
+elicitation capability. Claude's connectors do. A caller that cannot be prompted
+— a CI script driving the [ingest API](/gotifacts/guides/publish-from-ci/) with
+an API key, say — purges in a single call as before, which is why a `purge`
+grant is worth handing out narrowly (see the
+[permissions reference](/gotifacts/reference/permissions/)).
+
+The confirmation is bound to the connection, the exact site and a five-minute
+window, so an answer cannot be replayed against a different site or reused
+later. Declining leaves the site quarantined and recoverable with
+`restore_site`.
+
 ## Manage connections
 
 Each consent creates a *connection* you can review and revoke. Admins see them
