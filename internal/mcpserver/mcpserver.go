@@ -635,10 +635,11 @@ func clientCanElicitForms(caps *mcpsdk.ClientCapabilities) bool {
 // retry regardless.
 func (s *Service) purgeToken(user, group, slug string, exp time.Time) string {
 	unix := strconv.FormatInt(exp.Unix(), 10)
-	mac := hmac.New(sha256.New, s.csrfKey)
 	// NUL separators keep the fields unambiguous, so that a slug containing the
 	// separator cannot be split to impersonate a different group.
-	fmt.Fprintf(mac, "purge\x00%s\x00%s\x00%s\x00%s", user, group, slug, unix)
+	payload := fmt.Sprintf("purge\x00%s\x00%s\x00%s\x00%s", user, group, slug, unix)
+	mac := hmac.New(sha256.New, s.csrfKey)
+	mac.Write([]byte(payload))
 	return unix + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 

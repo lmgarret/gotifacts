@@ -140,7 +140,7 @@ func TestPublishLargeBodyOverMCPTransport(t *testing.T) {
 // makes the SDK advertise the elicitation capability the purge confirmation
 // gate keys off. answer is returned for every elicitation; calls records the
 // messages the server asked about.
-func elicitingClient(t *testing.T, ctx context.Context, url, token string, answer string, calls *[]string) *mcpsdk.ClientSession {
+func elicitingClient(ctx context.Context, t *testing.T, url, token string, answer string, calls *[]string) *mcpsdk.ClientSession {
 	t.Helper()
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "eliciting-client", Version: "1.2.3"}, &mcpsdk.ClientOptions{
 		ElicitationHandler: func(_ context.Context, req *mcpsdk.ElicitRequest) (*mcpsdk.ElicitResult, error) {
@@ -207,7 +207,7 @@ func TestPurgeSiteConfirmAccept(t *testing.T) {
 	}
 
 	var asked []string
-	session := elicitingClient(t, ctx, url, token, "accept", &asked)
+	session := elicitingClient(ctx, t, url, token, "accept", &asked)
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "purge_site",
 		Arguments: map[string]any{"slug": "doomed"},
@@ -236,7 +236,7 @@ func TestPurgeSiteConfirmDecline(t *testing.T) {
 	ctx := context.Background()
 
 	var asked []string
-	session := elicitingClient(t, ctx, url, token, "decline", &asked)
+	session := elicitingClient(ctx, t, url, token, "decline", &asked)
 	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "purge_site",
 		Arguments: map[string]any{"slug": "doomed"},
