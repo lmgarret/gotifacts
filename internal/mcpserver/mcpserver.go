@@ -106,7 +106,16 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 		Description: "Permanently and immediately delete a soft-deleted (quarantined) site, bypassing the retention TTL. This is irreversible — the site's files are destroyed. Only use when you are certain the site should be gone.",
 	}, s.purgeSite)
 
-	streamHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	// go-sdk >= v1.7.0 bounds the Streamable HTTP request body, defaulting to
+	// 4 MiB. That is far below the multipart ingest limit, so a publish_site
+	// call carrying a multi-file site would be rejected with 413 long before
+	// the ingest pipeline saw it. Align the two on GOTIFACTS_MAX_UPLOAD_BYTES;
+	// note that base64-encoded files inflate ~4/3 on the JSON-RPC wire, so the
+	// effective site size over MCP is correspondingly smaller.
+	streamHandler := mcpsdk.NewStreamableHTTPHandler(
+		func(*http.Request) *mcpsdk.Server { return srv },
+		&mcpsdk.StreamableHTTPOptions{MaxRequestBodyBytes: cfg.MaxUploadBytes},
+	)
 	// No required scope at the middleware: a valid, unexpired token is admitted
 	// and the per-capability/target check happens in the tool via Principal.Can.
 	s.stream = mcpauth.RequireBearerToken(s.verifyToken, &mcpauth.RequireBearerTokenOptions{

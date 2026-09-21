@@ -84,7 +84,7 @@ within `GOTIFACTS_TRUSTED_PROXIES`; otherwise it is stripped. See the
 
 | Variable | Example | Default | Notes |
 | --- | --- | --- | --- |
-| `GOTIFACTS_MAX_UPLOAD_BYTES` | `134217728` (128 MiB) | `67108864` (64 MiB) | Max ingest request body size. |
+| `GOTIFACTS_MAX_UPLOAD_BYTES` | `134217728` (128 MiB) | `67108864` (64 MiB) | Max ingest request body size. Also caps the MCP Streamable HTTP request body. |
 | `GOTIFACTS_MAX_EXTRACT_BYTES` | `536870912` (512 MiB) | `268435456` (256 MiB) | Max total decompressed bytes per archive. |
 | `GOTIFACTS_MAX_EXTRACT_ENTRIES` | `20000` | `10000` | Max entries extracted per archive. |
 

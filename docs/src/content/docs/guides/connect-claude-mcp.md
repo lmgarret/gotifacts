@@ -60,13 +60,15 @@ is `utf8` or `base64` for binary assets).
 
 :::note[When to use MCP vs. an archive upload]
 Both `html` and `files` travel *inside* the MCP tool call, so their practical
-size ceiling is what fits in a single call — and `base64` inflates binary assets
-by roughly a third. They're ideal for small, generated sites. For a large or
-asset-heavy site (a built `dist/` with real images or fonts), publish a
-`.tar.gz`/`.zip` **`bundle`** through the [ingest API](/gotifacts/guides/publish-from-ci/)
-instead: it streams a compressed archive and is bounded by
-`GOTIFACTS_MAX_UPLOAD_BYTES` (default 64 MiB) rather than the tool call. Both
-paths then enforce the extraction limits `GOTIFACTS_MAX_EXTRACT_BYTES` (256 MiB)
+size ceiling is what fits in a single JSON-RPC request body — and `base64`
+inflates binary assets by roughly a third. That body is bounded by
+`GOTIFACTS_MAX_UPLOAD_BYTES` (default 64 MiB), the same limit as the ingest API,
+so the effective site size over MCP is smaller once encoding overhead is
+counted. They're ideal for small, generated sites. For a large or asset-heavy
+site (a built `dist/` with real images or fonts), publish a `.tar.gz`/`.zip`
+**`bundle`** through the [ingest API](/gotifacts/guides/publish-from-ci/)
+instead: it streams an already-compressed archive rather than inflating it into
+JSON. Both paths then enforce the extraction limits `GOTIFACTS_MAX_EXTRACT_BYTES` (256 MiB)
 and `GOTIFACTS_MAX_EXTRACT_ENTRIES` (10 000) — see the
 [configuration reference](/gotifacts/reference/configuration/).
 :::

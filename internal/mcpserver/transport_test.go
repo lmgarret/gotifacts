@@ -80,3 +80,55 @@ func TestPublishOverMCPTransport(t *testing.T) {
 		t.Fatalf("published file missing: %v", err)
 	}
 }
+
+// TestPublishLargeBodyOverMCPTransport guards the Streamable HTTP request body
+// limit. go-sdk v1.7.0 started bounding it, defaulting to 4 MiB; the handler
+// raises that to GOTIFACTS_MAX_UPLOAD_BYTES so a multi-file site does not get a
+// 413 before reaching the ingest pipeline. The payload here sits above the SDK
+// default and well below the configured limit.
+func TestPublishLargeBodyOverMCPTransport(t *testing.T) {
+	s, cfg := newTestService(t)
+	ctx := context.Background()
+
+	const token = "large-access-token"
+	if err := s.store.CreateToken(ctx, store.Token{
+		Hash: keys.Hash(token), ConnID: "conn-large", Kind: "access", ClientID: "c", User: "tester",
+		Grants:    []store.Grant{{Kind: store.GrantGroup, Target: "claude", Permissions: []keys.Capability{keys.CapPublish}}},
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(s.testHandler(&auth.Principal{User: "tester"}))
+	defer srv.Close()
+
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "0"}, nil)
+	transport := &mcpsdk.StreamableClientTransport{
+		Endpoint:   srv.URL + "/mcp",
+		HTTPClient: &http.Client{Transport: bearerRoundTripper{token: token}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// ~5 MiB of HTML: over mcpsdk.DefaultMaxRequestBodyBytes, under MaxUploadBytes.
+	body := strings.Repeat("x", 5<<20)
+	if int64(len(body)) <= mcpsdk.DefaultMaxRequestBodyBytes || int64(len(body)) >= cfg.MaxUploadBytes {
+		t.Fatalf("payload of %d bytes does not straddle the two limits", len(body))
+	}
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "publish_site",
+		Arguments: map[string]any{"slug": "big", "html": "<!doctype html><p>" + body + "</p>"},
+	})
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %+v", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.SitesDir(), "claude", "big", "@site", "index.html")); err != nil {
+		t.Fatalf("published file missing: %v", err)
+	}
+}
