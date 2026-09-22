@@ -782,3 +782,105 @@ func postForm(t *testing.T, url string, form url.Values, dst any) {
 		t.Fatalf("decode %s: %v", url, err)
 	}
 }
+
+// TestPurgeTokenBinding covers the signed RequestState behind the purge
+// confirmation. The client chooses what to echo back, so a token must only
+// validate for the principal and target it was minted for.
+func TestPurgeTokenBinding(t *testing.T) {
+	s, _ := newTestService(t)
+	tok := s.purgeToken("tester", "claude", "doomed", time.Now().Add(purgeConfirmTTL))
+
+	if !s.purgeTokenValid(tok, "tester", "claude", "doomed") {
+		t.Fatal("a freshly minted token should validate for its own target")
+	}
+
+	for _, tc := range []struct{ name, user, group, slug string }{
+		{"other user", "mallory", "claude", "doomed"},
+		{"other group", "tester", "other", "doomed"},
+		{"other slug", "tester", "claude", "keeper"},
+	} {
+		if s.purgeTokenValid(tok, tc.user, tc.group, tc.slug) {
+			t.Errorf("%s: confirmation for one target must not validate for another", tc.name)
+		}
+	}
+
+	// A token whose fields are re-split at the separator must not validate:
+	// group "claude" + slug "doomed" is a different consent from group
+	// "claude\x00doomed" + an empty slug.
+	if s.purgeTokenValid(tok, "tester", "claude\x00doomed", "") {
+		t.Error("field boundaries must not be ambiguous")
+	}
+
+	if s.purgeTokenValid(s.purgeToken("tester", "claude", "doomed", time.Now().Add(-time.Second)), "tester", "claude", "doomed") {
+		t.Error("an expired token must not validate")
+	}
+	if s.purgeTokenValid("garbage", "tester", "claude", "doomed") {
+		t.Error("a malformed token must not validate")
+	}
+	if s.purgeTokenValid("99999999999.AAAA", "tester", "claude", "doomed") {
+		t.Error("a token with a forged signature must not validate")
+	}
+
+	// Another service has a different HMAC key, so tokens must not cross over.
+	other, _ := newTestService(t)
+	if other.purgeTokenValid(tok, "tester", "claude", "doomed") {
+		t.Error("a token must not validate against a different service key")
+	}
+}
+
+func TestClientCanElicitForms(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		caps *mcpsdk.ClientCapabilities
+		want bool
+	}{
+		{"no capabilities", nil, false},
+		{"no elicitation", &mcpsdk.ClientCapabilities{}, false},
+		// Pre-SEP-1036 clients send {} and are form-capable by convention.
+		{"bare elicitation", &mcpsdk.ClientCapabilities{Elicitation: &mcpsdk.ElicitationCapabilities{}}, true},
+		{"form", &mcpsdk.ClientCapabilities{Elicitation: &mcpsdk.ElicitationCapabilities{
+			Form: &mcpsdk.FormElicitationCapabilities{}}}, true},
+		{"url only", &mcpsdk.ClientCapabilities{Elicitation: &mcpsdk.ElicitationCapabilities{
+			URL: &mcpsdk.URLElicitationCapabilities{}}}, false},
+	} {
+		if got := clientCanElicitForms(tc.caps); got != tc.want {
+			t.Errorf("%s: clientCanElicitForms = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestPurgeSiteToolWithoutElicitation covers the scripted path: an API-key
+// caller that cannot be prompted purges in one call, exactly as before the
+// confirmation gate existed.
+func TestPurgeSiteToolWithoutElicitation(t *testing.T) {
+	s, cfg := newTestService(t)
+	ctx := context.Background()
+
+	principal := mcpPrincipal(store.Grant{
+		Kind:        store.GrantGroup,
+		Target:      "claude",
+		Permissions: []keys.Capability{keys.CapPublish, keys.CapUnpublish, keys.CapPurge},
+	})
+	req := mcpReq(principal)
+
+	if res, _, err := s.publishSite(ctx, req, publishInput{Slug: "scripted", HTML: "<!doctype html><h1>x</h1>"}); err != nil || res.IsError {
+		t.Fatalf("publish setup: %v / %+v", err, res)
+	}
+	if res, _, err := s.unpublishSite(ctx, req, unpublishInput{Slug: "scripted"}); err != nil || res.IsError {
+		t.Fatalf("unpublish setup: %v / %+v", err, res)
+	}
+
+	res, _, err := s.purgeSite(ctx, req, purgeInput{Slug: "scripted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %+v", res.Content)
+	}
+	if len(res.InputRequests) != 0 {
+		t.Fatalf("a client that cannot elicit must not be asked to confirm: %+v", res.InputRequests)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DeletedDir(), "claude", "scripted")); !os.IsNotExist(err) {
+		t.Fatalf("quarantine dir should be gone after purge: %v", err)
+	}
+}

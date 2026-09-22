@@ -18,13 +18,17 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +51,15 @@ const (
 	codeTTL = 10 * time.Minute
 	// serverVersion is reported in the MCP initialize handshake.
 	serverVersion = "0.1.0"
+	// toolListTTL is the cache hint attached to tools/list results. The tool
+	// set is static for the lifetime of the process, so this only bounds how
+	// stale a client may be after a gotifacts upgrade.
+	toolListTTL = time.Hour
+	// purgeConfirmID is the input-request key under which purge_site asks for
+	// confirmation; the client echoes it back in InputResponses.
+	purgeConfirmID = "confirm"
+	// purgeConfirmTTL bounds how long an issued purge confirmation stays valid.
+	purgeConfirmTTL = 5 * time.Minute
 )
 
 // Service holds the MCP + OAuth dependencies and HTTP handlers.
@@ -103,10 +116,27 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 	}, s.restoreSite)
 	mcpsdk.AddTool(srv, &mcpsdk.Tool{
 		Name:        "purge_site",
-		Description: "Permanently and immediately delete a soft-deleted (quarantined) site, bypassing the retention TTL. This is irreversible — the site's files are destroyed. Only use when you are certain the site should be gone.",
+		Description: "Permanently and immediately delete a soft-deleted (quarantined) site, bypassing the retention TTL. This is irreversible — the site's files are destroyed. Only use when you are certain the site should be gone. Clients that support elicitation are asked to confirm before anything is deleted; answer the prompt and the call completes on its own.",
 	}, s.purgeSite)
 
-	streamHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	// gotifacts' tool set is compiled in and never changes at runtime, so the
+	// SDK's default TTL of 0 ("immediately stale") makes every client re-list
+	// the tools on each connection for no benefit. SEP-2549 cache hints live on
+	// the result, which the SDK builds internally, so annotate it on the way
+	// out. The scope stays "public": these descriptions are identical for every
+	// caller and carry nothing user-specific.
+	srv.AddReceivingMiddleware(toolListCacheHint)
+
+	// go-sdk >= v1.7.0 bounds the Streamable HTTP request body, defaulting to
+	// 4 MiB. That is far below the multipart ingest limit, so a publish_site
+	// call carrying a multi-file site would be rejected with 413 long before
+	// the ingest pipeline saw it. Align the two on GOTIFACTS_MAX_UPLOAD_BYTES;
+	// note that base64-encoded files inflate ~4/3 on the JSON-RPC wire, so the
+	// effective site size over MCP is correspondingly smaller.
+	streamHandler := mcpsdk.NewStreamableHTTPHandler(
+		func(*http.Request) *mcpsdk.Server { return srv },
+		&mcpsdk.StreamableHTTPOptions{MaxRequestBodyBytes: cfg.MaxUploadBytes},
+	)
 	// No required scope at the middleware: a valid, unexpired token is admitted
 	// and the per-capability/target check happens in the tool via Principal.Can.
 	s.stream = mcpauth.RequireBearerToken(s.verifyToken, &mcpauth.RequireBearerTokenOptions{
@@ -151,6 +181,7 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	if p == nil {
 		return errorResult("authentication required"), publishOutput{}, nil
 	}
+	log := s.reqLog(req)
 
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
@@ -187,10 +218,10 @@ func (s *Service) publishSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	}
 	res, _, err := s.pub.Publish(ctx, meta, kind, content)
 	if err != nil {
-		s.log.Warn("mcp publish failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
+		log.Warn("mcp publish failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("publish failed: " + err.Error()), publishOutput{}, nil
 	}
-	s.log.Info("site published", "user", p.User, "source", "mcp", "group", res.Group, "slug", res.Slug, "url", res.URL)
+	log.Info("site published", "user", p.User, "source", "mcp", "group", res.Group, "slug", res.Slug, "url", res.URL)
 	out := publishOutput{URL: res.URL, Group: res.Group, Slug: res.Slug}
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "Published to " + res.URL}},
@@ -274,6 +305,7 @@ func (s *Service) unpublishSite(ctx context.Context, req *mcpsdk.CallToolRequest
 	if p == nil {
 		return errorResult("authentication required"), struct{}{}, nil
 	}
+	log := s.reqLog(req)
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
 		group = s.cfg.MCPGroup
@@ -285,10 +317,10 @@ func (s *Service) unpublishSite(ctx context.Context, req *mcpsdk.CallToolRequest
 		return errorResult(fmt.Sprintf("this connection is not permitted to unpublish %q in group %q", in.Slug, group)), struct{}{}, nil
 	}
 	if err := s.pub.Unpublish(ctx, group, in.Slug); err != nil {
-		s.log.Warn("mcp unpublish failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
+		log.Warn("mcp unpublish failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("unpublish failed: " + err.Error()), struct{}{}, nil
 	}
-	s.log.Info("site unpublished", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
+	log.Info("site unpublished", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been unpublished.", in.Slug, group)}},
 	}, struct{}{}, nil
@@ -316,6 +348,7 @@ func (s *Service) updateSite(ctx context.Context, req *mcpsdk.CallToolRequest, i
 	if p == nil {
 		return errorResult("authentication required"), updateOutput{}, nil
 	}
+	log := s.reqLog(req)
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
 		group = s.cfg.MCPGroup
@@ -335,10 +368,10 @@ func (s *Service) updateSite(ctx context.Context, req *mcpsdk.CallToolRequest, i
 		patch.Tags = &in.Tags
 	}
 	if _, err := s.store.PatchSite(ctx, group, in.Slug, patch); err != nil {
-		s.log.Warn("mcp update failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
+		log.Warn("mcp update failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("update failed: " + err.Error()), updateOutput{}, nil
 	}
-	s.log.Info("site metadata patched", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
+	log.Info("site metadata patched", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	out := updateOutput{Group: group, Slug: in.Slug}
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been updated.", in.Slug, group)}},
@@ -375,6 +408,7 @@ func (s *Service) listRevisions(_ context.Context, req *mcpsdk.CallToolRequest, 
 	if p == nil {
 		return errorResult("authentication required"), listRevisionsOutput{}, nil
 	}
+	log := s.reqLog(req)
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
 		group = s.cfg.MCPGroup
@@ -391,7 +425,7 @@ func (s *Service) listRevisions(_ context.Context, req *mcpsdk.CallToolRequest, 
 	}
 	revs, err := s.pub.ListRevisions(sp)
 	if err != nil {
-		s.log.Warn("mcp list revisions failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
+		log.Warn("mcp list revisions failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("failed to list revisions: " + err.Error()), listRevisionsOutput{}, nil
 	}
 	out := listRevisionsOutput{Group: group, Slug: in.Slug, Revisions: make([]revisionView, 0, len(revs))}
@@ -433,6 +467,7 @@ func (s *Service) rollbackSite(ctx context.Context, req *mcpsdk.CallToolRequest,
 	if p == nil {
 		return errorResult("authentication required"), rollbackOutput{}, nil
 	}
+	log := s.reqLog(req)
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
 		group = s.cfg.MCPGroup
@@ -455,10 +490,10 @@ func (s *Service) rollbackSite(ctx context.Context, req *mcpsdk.CallToolRequest,
 		rollErr = s.pub.Rollback(ctx, sp)
 	}
 	if rollErr != nil {
-		s.log.Warn("mcp rollback failed", "user", p.User, "group", group, "slug", in.Slug, "revision", rev, "err", rollErr)
+		log.Warn("mcp rollback failed", "user", p.User, "group", group, "slug", in.Slug, "revision", rev, "err", rollErr)
 		return errorResult("rollback failed: " + rollErr.Error()), rollbackOutput{}, nil
 	}
-	s.log.Info("site rolled back", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug, "revision", rev)
+	log.Info("site rolled back", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug, "revision", rev)
 	out := rollbackOutput{Group: group, Slug: in.Slug}
 	msg := fmt.Sprintf("Site %q in group %q has been rolled back to the previous version.", in.Slug, group)
 	if rev != "" {
@@ -481,6 +516,7 @@ func (s *Service) restoreSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 	if p == nil {
 		return errorResult("authentication required"), struct{}{}, nil
 	}
+	log := s.reqLog(req)
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
 		group = s.cfg.MCPGroup
@@ -492,10 +528,10 @@ func (s *Service) restoreSite(ctx context.Context, req *mcpsdk.CallToolRequest, 
 		return errorResult(fmt.Sprintf("this connection is not permitted to restore %q in group %q", in.Slug, group)), struct{}{}, nil
 	}
 	if err := s.pub.Restore(ctx, group, in.Slug); err != nil {
-		s.log.Warn("mcp restore failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
+		log.Warn("mcp restore failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("restore failed: " + err.Error()), struct{}{}, nil
 	}
-	s.log.Info("site restored", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
+	log.Info("site restored", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been restored.", in.Slug, group)}},
 	}, struct{}{}, nil
@@ -513,6 +549,7 @@ func (s *Service) purgeSite(ctx context.Context, req *mcpsdk.CallToolRequest, in
 	if p == nil {
 		return errorResult("authentication required"), struct{}{}, nil
 	}
+	log := s.reqLog(req)
 	group := strings.TrimSpace(in.Group)
 	if group == "" {
 		group = s.cfg.MCPGroup
@@ -523,14 +560,140 @@ func (s *Service) purgeSite(ctx context.Context, req *mcpsdk.CallToolRequest, in
 	if !p.Can(keys.CapPurge, group, in.Slug) {
 		return errorResult(fmt.Sprintf("this connection is not permitted to purge %q in group %q", in.Slug, group)), struct{}{}, nil
 	}
+	if res, done := s.confirmPurge(req, p, group, in.Slug, log); done {
+		return res, struct{}{}, nil
+	}
 	if err := s.pub.Purge(ctx, group, in.Slug); err != nil {
-		s.log.Warn("mcp purge failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
+		log.Warn("mcp purge failed", "user", p.User, "group", group, "slug", in.Slug, "err", err)
 		return errorResult("purge failed: " + err.Error()), struct{}{}, nil
 	}
-	s.log.Info("site purged", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
+	log.Info("site purged", "user", p.User, "source", "mcp", "group", group, "slug", in.Slug)
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("Site %q in group %q has been permanently deleted.", in.Slug, group)}},
 	}, struct{}{}, nil
+}
+
+// confirmPurge is the human-in-the-loop gate in front of an irreversible purge.
+//
+// Rather than deleting on the first call, it returns an SEP-2322 input request:
+// the client elicits the user's answer and retries the same tool call with the
+// response attached, and the SDK's compatibility middleware turns that into a
+// direct elicitation for clients still on older protocol versions, so this code
+// is protocol-version-independent. A client that cannot elicit at all would
+// fail the call outright instead of being asked, so the gate is skipped unless
+// the client advertised form elicitation — purge stays reachable for the
+// scripted API-key path, which never had a prompt to begin with.
+//
+// The second return reports whether the caller should stop and return res; a
+// false means the purge was confirmed and should proceed.
+func (s *Service) confirmPurge(req *mcpsdk.CallToolRequest, p *auth.Principal, group, slug string, log *slog.Logger) (*mcpsdk.CallToolResult, bool) {
+	if req.Params == nil || !clientCanElicitForms(req.ClientCapabilities()) {
+		return nil, false
+	}
+	answer, answered := req.Params.InputResponses[purgeConfirmID]
+	if !answered {
+		return &mcpsdk.CallToolResult{
+			InputRequests: mcpsdk.InputRequestMap{purgeConfirmID: &mcpsdk.ElicitParams{
+				Message: fmt.Sprintf(
+					"Permanently delete site %q in group %q? Its files are destroyed immediately and cannot be recovered.",
+					slug, group),
+			}},
+			RequestState: s.purgeToken(p.User, group, slug, time.Now().Add(purgeConfirmTTL)),
+		}, true
+	}
+	// The client chooses what to echo back, so re-derive consent from the
+	// signed state rather than trusting that an answer belongs to this target:
+	// a confirmation for one site must not authorize purging another.
+	if !s.purgeTokenValid(req.Params.RequestState, p.User, group, slug) {
+		log.Warn("mcp purge confirmation rejected", "user", p.User, "group", group, "slug", slug)
+		return errorResult("purge confirmation is invalid or has expired; call purge_site again to retry"), true
+	}
+	if res, ok := answer.(*mcpsdk.ElicitResult); !ok || res.Action != "accept" {
+		log.Info("site purge declined", "user", p.User, "source", "mcp", "group", group, "slug", slug)
+		return &mcpsdk.CallToolResult{
+			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf(
+				"Purge cancelled: %q in group %q was not deleted and is still recoverable.", slug, group)}},
+		}, true
+	}
+	return nil, false
+}
+
+// clientCanElicitForms reports whether the connected client can answer a form
+// elicitation. Capabilities with neither sub-field set mean a pre-SEP-1036
+// client, which the SDK treats as form-capable for backward compatibility.
+func clientCanElicitForms(caps *mcpsdk.ClientCapabilities) bool {
+	if caps == nil || caps.Elicitation == nil {
+		return false
+	}
+	return caps.Elicitation.Form != nil || caps.Elicitation.URL == nil
+}
+
+// purgeToken mints the opaque RequestState carried through a purge
+// confirmation. It binds the answer to the principal, the exact target and an
+// expiry, all authenticated with the service HMAC key so a client cannot mint
+// or retarget one. It is not a capability: purgeSite re-checks CapPurge on the
+// retry regardless.
+func (s *Service) purgeToken(user, group, slug string, exp time.Time) string {
+	unix := strconv.FormatInt(exp.Unix(), 10)
+	// NUL separators keep the fields unambiguous, so that a slug containing the
+	// separator cannot be split to impersonate a different group.
+	payload := fmt.Sprintf("purge\x00%s\x00%s\x00%s\x00%s", user, group, slug, unix)
+	mac := hmac.New(sha256.New, s.csrfKey)
+	mac.Write([]byte(payload))
+	return unix + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// purgeTokenValid reports whether token is a live purgeToken for this exact
+// principal and target.
+func (s *Service) purgeTokenValid(token, user, group, slug string) bool {
+	unix, _, ok := strings.Cut(token, ".")
+	if !ok {
+		return false
+	}
+	exp, err := strconv.ParseInt(unix, 10, 64)
+	if err != nil || time.Now().After(time.Unix(exp, 0)) {
+		return false
+	}
+	expected := s.purgeToken(user, group, slug, time.Unix(exp, 0))
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(token)) == 1
+}
+
+// toolListCacheHint stamps a TTL on tools/list results. See the call site in
+// New for why the static tool set is safe to cache.
+func toolListCacheHint(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
+	return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
+		res, err := next(ctx, method, req)
+		if err != nil {
+			return res, err
+		}
+		if lt, ok := res.(*mcpsdk.ListToolsResult); ok {
+			lt.TTLMs = int(toolListTTL.Milliseconds())
+			lt.CacheScope = "public"
+		}
+		return res, nil
+	}
+}
+
+// reqLog returns the service logger annotated with the MCP client behind a tool
+// call. ClientInfo and ProtocolVersion read the per-request `_meta` on protocol
+// version 2026-07-28 and up, falling back to the initialize handshake for older
+// sessions, so the audit trail records which connector published a site rather
+// than just which user did.
+func (s *Service) reqLog(req *mcpsdk.CallToolRequest) *slog.Logger {
+	if req == nil {
+		return s.log
+	}
+	log := s.log
+	if info := req.ClientInfo(); info != nil && info.Name != "" {
+		log = log.With("client", info.Name)
+		if info.Version != "" {
+			log = log.With("client_version", info.Version)
+		}
+	}
+	if v := req.ProtocolVersion(); v != "" {
+		log = log.With("mcp_protocol", v)
+	}
+	return log
 }
 
 // principalFromRequest extracts the *auth.Principal that verifyToken stashed in
