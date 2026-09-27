@@ -7,6 +7,7 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightImageZoom from 'starlight-image-zoom';
 import starlightLinksValidator from 'starlight-links-validator';
 import astroD2 from 'astro-d2';
+import { unified } from '@astrojs/markdown-remark';
 import { visit } from 'unist-util-visit';
 
 // astro-d2 emits each diagram's dark palette behind a
@@ -132,6 +133,6 @@ export default defineConfig({
   ],
   markdown: {
     // Make D2's dark palette follow Starlight's theme toggle (see above).
-    rehypePlugins: [rehypeD2DarkMode],
+    processor: unified({ rehypePlugins: [rehypeD2DarkMode] }),
   },
 });
