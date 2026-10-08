@@ -55,8 +55,8 @@ jobs:
         id: changelog
         uses: lmgarret/llm-release-action@v1
         with:
-          model: anthropic/claude-sonnet-5
-          model_analysis: anthropic/claude-haiku-4-5
+          model: anthropic/claude-sonnet-5-5
+          model_analysis: anthropic/claude-haiku-5-5
           current_version: ${{ steps.prev_tag.outputs.tag }}
           changelog_config: |
             default:
