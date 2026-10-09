@@ -25,13 +25,6 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-
-      - name: Install missing language_data dependency
-        run: pip install language_data
-
       - name: Find previous tag
         id: prev_tag
         run: |
@@ -53,11 +46,13 @@ jobs:
       - name: Generate AI changelog
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         id: changelog
-        uses: lmgarret/llm-release-action@v1
+        uses: lmgarret/llm-release-action@89ad4c3af8aa41030849a703ab6b081d0d384186 # v1.2.0
         with:
           model: anthropic/claude-sonnet-5-5
           model_analysis: anthropic/claude-haiku-5-5
           current_version: ${{ steps.prev_tag.outputs.tag }}
+          # Self-hosted service: breaking means operators must act on upgrade.
+          project_type: service
           changelog_config: |
             default:
               languages: [en]
