@@ -54,7 +54,7 @@ Creates a key and prints its plaintext token **once**.
 | `--expires-at WHEN` | Absolute expiry, RFC3339 or `YYYY-MM-DD`. Overrides `--expires-in`. |
 
 `CAPS` is a comma-separated list of capabilities: `publish`, `unpublish`,
-`rollback`, `patch`.
+`rollback`, `patch`, `purge`, `read` (`read` applies to MCP only).
 
 ```sh
 gotifacts keys create --name ci --grant "previews:publish,unpublish"

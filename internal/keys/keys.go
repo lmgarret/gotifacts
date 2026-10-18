@@ -37,6 +37,9 @@ const (
 	CapPatch Capability = "patch"
 	// CapPurge allows permanently deleting a soft-deleted (quarantined) site.
 	CapPurge Capability = "purge"
+	// CapRead allows reading site content (list, read, search) over MCP. No
+	// ingest endpoint uses it.
+	CapRead Capability = "read"
 )
 
 // ErrInvalidCapability is returned when a capability string is not recognized.
@@ -54,7 +57,7 @@ func ParseCapability(s string) (Capability, error) {
 // Valid reports whether c is a recognized capability.
 func (c Capability) Valid() bool {
 	switch c {
-	case CapPublish, CapUnpublish, CapRollback, CapPatch, CapPurge:
+	case CapPublish, CapUnpublish, CapRollback, CapPatch, CapPurge, CapRead:
 		return true
 	default:
 		return false

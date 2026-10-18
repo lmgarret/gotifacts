@@ -26,6 +26,34 @@ that assumption. The canonical policy is
   oversized payloads. Sites are written to a temp dir on the same volume,
   validated, then atomically swapped into place.
 
+## Reading site content over MCP and prompt injection
+
+The MCP read tools (`list_sites`, `list_files`, `read_file`, `search_site`; see
+[Connect Claude via MCP](/gotifacts/guides/connect-claude-mcp/#reading-site-content))
+return the contents of published sites to an AI agent. Whatever a site contains
+enters the agent's context, so a site carrying **prompt-injection text** (hidden
+instructions in a page, `llms.txt` or a Markdown file) can try to steer an agent
+that reads it, for example to publish, change or purge other sites, or to leak
+what else it has read. gotifacts has no code mitigation for this: it returns the
+bytes as they are.
+
+What bounds the damage is the grant model:
+
+- Reading is its own `read` capability, off by default on the consent screen. A
+  connection without it sees no change in behaviour.
+- A read grant has its own target, separate from the publish target. Give a
+  connector that reads untrusted sites a narrow read target, and avoid combining
+  a broad read grant with `purge`, `unpublish` or a wide `publish` grant on the
+  same connection.
+- Only text files of the live revision are served, from inside the site's own
+  directory; symlinks and path traversal are refused.
+- Reads are logged (user, tool, group, slug, path, never content) and denials are
+  logged at info level.
+
+Treat sites you let an agent read as untrusted input, and prefer
+[reviewing](/gotifacts/guides/connect-claude-mcp/#manage-connections) the
+connections that hold both read and write access.
+
 ## What the proxy must do
 
 The threat model leans on the proxy to:

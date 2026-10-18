@@ -70,9 +70,9 @@ export interface FileNode {
   children?: FileNode[];
 }
 
-export type Capability = "publish" | "unpublish" | "rollback" | "patch" | "purge";
+export type Capability = "publish" | "unpublish" | "rollback" | "patch" | "purge" | "read";
 
-export const CAPABILITIES: Capability[] = ["publish", "unpublish", "rollback", "patch", "purge"];
+export const CAPABILITIES: Capability[] = ["publish", "unpublish", "rollback", "patch", "purge", "read"];
 
 export type GrantKind = "group" | "site";
 

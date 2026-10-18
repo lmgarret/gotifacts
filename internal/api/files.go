@@ -13,6 +13,7 @@ import (
 	"github.com/lmgarret/gotifacts/internal/auth"
 	"github.com/lmgarret/gotifacts/internal/ingest"
 	"github.com/lmgarret/gotifacts/internal/router"
+	"github.com/lmgarret/gotifacts/internal/sitefs"
 	"github.com/lmgarret/gotifacts/internal/store"
 )
 
@@ -204,7 +205,7 @@ func (s *Server) revisionFile(w http.ResponseWriter, r *http.Request, sp router.
 		writeError(w, http.StatusInternalServerError, "failed to resolve revision")
 		return
 	}
-	target, err := safeJoin(root, r.URL.Query().Get("path"))
+	target, err := sitefs.SafeJoin(root, r.URL.Query().Get("path"))
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -310,15 +311,4 @@ func sortFileNode(n *FileNode) {
 			sortFileNode(c)
 		}
 	}
-}
-
-// safeJoin cleans rel and joins it under root, rejecting any result that would
-// escape root (path traversal).
-func safeJoin(root, rel string) (string, error) {
-	clean := filepath.Clean("/" + rel)
-	target := filepath.Join(root, filepath.FromSlash(clean))
-	if target != root && !strings.HasPrefix(target, root+string(os.PathSeparator)) {
-		return "", errors.New("path escapes revision root")
-	}
-	return target, nil
 }
