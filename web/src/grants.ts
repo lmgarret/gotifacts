@@ -1,4 +1,4 @@
-import type { Capability, Grant, GrantKind } from "./api";
+import type { Capability, Grant, GrantKind, Site } from "./api";
 
 // CAP_INFO describes each capability for the grant editor.
 export const CAP_INFO: Record<Capability, { desc: string }> = {
@@ -49,4 +49,50 @@ export function toGrant(type: ScopeType, target: string, permissions: Capability
 export function scopeTypeOf(g: Grant): ScopeType {
   if (g.kind === "site") return "site";
   return g.target === "" ? "global" : "group";
+}
+
+// DraftGrant is one grant card's in-progress state in the grant editor.
+export interface DraftGrant {
+  id: number;
+  type: ScopeType;
+  target: string;
+  permissions: Capability[];
+  expanded: boolean;
+}
+
+let nextGrantId = 1;
+
+// newDraftGrant returns an empty, expanded group grant for the editor.
+export function newDraftGrant(init: Partial<DraftGrant> = {}): DraftGrant {
+  return { id: nextGrantId++, type: "group", target: "", permissions: [], expanded: true, ...init };
+}
+
+// validateGrants checks a grant list the way the server will: at least one
+// grant, a target on every group/site grant, at least one permission on every
+// grant, and the risk acknowledgement when any grant is global. emptyMsg is the
+// message for an empty list, which differs per screen.
+export function validateGrants(grants: DraftGrant[], ack: boolean, emptyMsg: string): string | null {
+  if (grants.length === 0) return emptyMsg;
+  for (const g of grants) {
+    if (g.type !== "global" && !g.target.trim()) return "Each group/site grant needs a target.";
+    if (g.permissions.length === 0) return "Each grant needs at least one permission.";
+  }
+  if (grants.some((g) => g.type === "global") && !ack) {
+    return "Acknowledge the global-scope risk to continue.";
+  }
+  return null;
+}
+
+// deriveTargets splits the site list into the set of existing site dirs and the
+// set of group prefixes that contain them, for the grant editor's suggestions.
+export function deriveTargets(sites: Site[]): { groups: string[]; sites: string[] } {
+  const groups = new Set<string>();
+  const siteDirs = new Set<string>();
+  for (const s of sites) {
+    const dir = s.group ? `${s.group}/${s.slug}` : s.slug;
+    siteDirs.add(dir);
+    const segs = dir.split("/");
+    for (let i = 1; i < segs.length; i++) groups.add(segs.slice(0, i).join("/"));
+  }
+  return { groups: [...groups].sort(), sites: [...siteDirs].sort() };
 }

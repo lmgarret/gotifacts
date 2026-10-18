@@ -37,9 +37,9 @@ still served at its URL. Accordingly, a `read` grant that covers a hidden site
 can read it. Site listings leave hidden sites out by default and include them
 only when asked.
 
-An [MCP connection](/gotifacts/guides/connect-claude-mcp/) can carry a
-**separate read grant** with its own target, so one connector can publish to
-one place (for example `claude`) and read another (for example `docs`).
+An [MCP connection](/gotifacts/guides/connect-claude-mcp/) can carry several
+grants, so one connector can publish to one place (for example `claude`) and read
+another (for example `docs`).
 
 ## Roles
 
@@ -83,7 +83,10 @@ Existing tokens keep working unchanged. A migration backfills grants from the ol
 ## MCP tokens
 
 [MCP connector](/gotifacts/guides/connect-claude-mcp/) tokens carry the **same**
-grant model: at the consent screen the approver picks a target (group subtree or
-single site) and the capabilities to allow, prefilled from `GOTIFACTS_MCP_GROUP`
-+ `publish`. An optional **Read access** section adds a second grant with the
-`read` capability and its own target. The connector can never act outside what was granted.
+grant model, edited with the same grant editor as the API Keys view: at the consent
+screen the approver builds one or more grants, each with a scope (group subtree,
+single site, or all sites) and the capabilities to allow. The first grant is
+prefilled with `GOTIFACTS_MCP_GROUP` + `publish`. `read` is a regular capability on
+that screen, ticked per grant like the others, so one connector can for example
+publish to `claude` and read `docs`. A global (all sites) grant needs the same
+risk acknowledgement as an API key. The connector can never act outside what was granted.

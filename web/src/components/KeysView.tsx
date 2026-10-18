@@ -1,21 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type ApiKey, type Site } from "../api";
-import { hostForDir, scopeImpact, scopeTypeOf } from "../grants";
+import { deriveTargets, hostForDir, scopeImpact, scopeTypeOf } from "../grants";
 import { KeyCreateModal } from "./KeyCreateModal";
-
-// deriveTargets splits the site list into the set of existing site dirs and the
-// set of group prefixes that contain them, for the create modal's suggestions.
-function deriveTargets(sites: Site[]): { groups: string[]; sites: string[] } {
-  const groups = new Set<string>();
-  const siteDirs = new Set<string>();
-  for (const s of sites) {
-    const dir = s.group ? `${s.group}/${s.slug}` : s.slug;
-    siteDirs.add(dir);
-    const segs = dir.split("/");
-    for (let i = 1; i < segs.length; i++) groups.add(segs.slice(0, i).join("/"));
-  }
-  return { groups: [...groups].sort(), sites: [...siteDirs].sort() };
-}
 
 export function KeysView() {
   const [keys, setKeys] = useState<ApiKey[]>([]);

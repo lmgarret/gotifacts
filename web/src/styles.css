@@ -1128,7 +1128,7 @@ a.button:hover {
     text-align: left;
     background: transparent;
     border: none;
-    padding: 0.6rem 2.2rem 0.6rem 0.7rem;
+    padding: 0.6rem 3rem 0.6rem 0.7rem;
     cursor: pointer;
     font: inherit;
 }
@@ -1521,6 +1521,92 @@ button.ghost {
     justify-content: flex-end;
 }
 
+/* MCP consent screen (standalone, centred card; no portal chrome) */
+.consent {
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 3rem 1rem;
+}
+
+.consent-card {
+    width: 100%;
+    max-width: 38rem;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 2rem;
+}
+
+.consent-card h2 {
+    margin: 0 0 0.35rem;
+    font-size: 1.15rem;
+}
+
+.consent-lead {
+    margin: 0 0 1.25rem;
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+
+.consent-lead strong {
+    color: var(--text);
+}
+
+.consent-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    max-width: 100%;
+    margin-bottom: 1rem;
+    padding: 0.2rem 0.65rem 0.2rem 0.45rem;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 999px;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+}
+
+.consent-user-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+}
+
+.consent-actions {
+    margin-top: 1.5rem;
+}
+
+.consent-approve {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+
+.consent-approve:hover:not(:disabled) {
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+}
+
+@media (prefers-color-scheme: dark) {
+    .consent-approve {
+        background: var(--accent-strong);
+        border-color: var(--accent-strong);
+    }
+
+    .consent-approve:hover:not(:disabled) {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #0b1f13;
+    }
+}
+
 /*
  * ── Mobile breakpoint ───────────────────────────────────────────────────────
  * 40rem (640px) is the project's single, canonical mobile breakpoint. Reuse it
@@ -1573,5 +1659,28 @@ button.ghost {
     .file-row,
     .file-dir-header {
         --file-indent-step: 0.5rem;
+    }
+
+    /* Consent screen: full-width card with tighter padding; the buttons share a row. */
+    .consent {
+        padding: 1.25rem 0.75rem 2rem;
+    }
+
+    .consent-card {
+        padding: 1.25rem;
+    }
+
+    .consent-actions button {
+        flex: 1 1 auto;
+    }
+
+    /* Permission rows: the description drops under the name instead of being
+       squeezed into a narrow third column. */
+    .consent-card .perm-row {
+        grid-template-columns: auto 1fr;
+    }
+
+    .consent-card .perm-desc {
+        grid-column: 2;
     }
 }

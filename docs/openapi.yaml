@@ -409,6 +409,71 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/mcp/consent:
+    get:
+      tags: [Management]
+      summary: Load the MCP consent screen
+      description: |
+        Available only when `GOTIFACTS_MCP_ENABLED=true`. Backs the consent screen
+        the portal renders at `/mcp/oauth/authorize`. The query string carries the
+        OAuth authorization request; it is validated like the authorize endpoint
+        (known client, registered redirect URI, PKCE with `S256`) but failures are
+        reported as `400` JSON, never as redirects. The caller must be allowed to
+        grant MCP consent (`GOTIFACTS_MCP_ALLOWED_USERS`, falling back to the admin
+        users), otherwise `403`.
+      security:
+        - forwardAuth: []
+      parameters:
+        - { name: client_id, in: query, required: true, schema: { type: string } }
+        - { name: redirect_uri, in: query, required: true, schema: { type: string } }
+        - { name: response_type, in: query, required: true, schema: { type: string, enum: [code] } }
+        - { name: code_challenge, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge_method, in: query, schema: { type: string, enum: [S256], default: S256 } }
+        - { name: state, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: What the consent screen needs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsentInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Management]
+      summary: Approve or deny an MCP connector
+      description: |
+        Available only when `GOTIFACTS_MCP_ENABLED=true`. Records the user's
+        decision on the consent screen and answers with the URL to send the browser
+        to (`window.location.assign`): the client's `redirect_uri` carrying a `code`
+        (approve), `error=access_denied` (deny), or `error=invalid_scope` with an
+        `error_description` (invalid grants), plus the client's `state`.
+
+        The grants are validated server-side: 1 to 16 grants; each `kind` is `group`
+        or `site`; targets are lower-cased, trimmed of `/` and checked as site-path
+        labels; `permissions` is non-empty and limited to the capabilities returned
+        by `GET /api/mcp/consent`, which include `read`. A global grant (kind
+        `group`, empty target) needs `acknowledge_global: true`.
+
+        Errors before the redirect URI is trusted (bad CSRF token, unknown client,
+        unregistered redirect URI, malformed body) are `400` JSON.
+      security:
+        - forwardAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsentDecision" }
+      responses:
+        "200":
+          description: Where to send the browser next.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConsentRedirect" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/mcp/connections:
     get:
       tags: [Management]
@@ -820,6 +885,53 @@ components:
         last_used_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
       required: [id, client_id, user, grants, created_at, expires_at]
+
+    ConsentInfo:
+      type: object
+      description: Data for the MCP consent screen.
+      properties:
+        client_name: { type: string, description: The registered client's display name. }
+        user: { type: string, description: The signed-in user approving the request. }
+        base_domain: { type: string }
+        default_target:
+          type: string
+          description: Group pre-filled in the first grant (`GOTIFACTS_MCP_GROUP`).
+        capabilities:
+          type: array
+          description: The capabilities the screen offers per grant, in display order.
+          items: { $ref: "#/components/schemas/Capability" }
+        csrf: { type: string, description: CSRF token to send back with the decision. }
+      required: [client_name, user, base_domain, default_target, capabilities, csrf]
+
+    ConsentDecision:
+      type: object
+      description: The user's decision on the MCP consent screen.
+      properties:
+        client_id: { type: string }
+        redirect_uri: { type: string }
+        code_challenge: { type: string }
+        code_challenge_method: { type: string, enum: [S256] }
+        state: { type: string }
+        csrf: { type: string, description: The token from `GET /api/mcp/consent`. }
+        action: { type: string, enum: [approve, deny] }
+        grants:
+          type: array
+          minItems: 1
+          maxItems: 16
+          description: Required for `approve`; ignored for `deny`.
+          items: { $ref: "#/components/schemas/Grant" }
+        acknowledge_global:
+          type: boolean
+          description: Must be true when any grant is global (group kind, empty target).
+      required: [client_id, redirect_uri, code_challenge, csrf, action]
+
+    ConsentRedirect:
+      type: object
+      properties:
+        redirect_url:
+          type: string
+          description: The client's redirect URI with `code` or `error` (and `state`) in the query.
+      required: [redirect_url]
 
     TreeNode:
       type: object

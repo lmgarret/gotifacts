@@ -46,28 +46,32 @@ The [nginx](/gotifacts/guides/reverse-proxy-nginx/) and
 In Claude → **Settings → Connectors → Add custom connector**, enter
 `https://<your-base-domain>/mcp`. Use the **canonical** `GOTIFACTS_BASE_DOMAIN`
 here even if you serve [alias domains](/gotifacts/reference/configuration/) — the
-OAuth issuer is always the canonical domain. Complete the SSO consent, where you
-pick:
+OAuth issuer is always the canonical domain. Complete the SSO consent. It is the
+same grant editor as the [API keys](/gotifacts/reference/permissions/) screen: a
+list of **grant cards**, each with
 
-- a **target** — a group subtree or a single site, prefilled from
-  `GOTIFACTS_MCP_GROUP` (default `claude`), and
-- the **capabilities** to allow (`publish`, `patch`, `unpublish`, `rollback`, `purge`).
+- a **scope** — a **group** subtree, a **single site**, or **global** (all
+  sites). The first grant is prefilled with the group from `GOTIFACTS_MCP_GROUP`
+  (default `claude`); the target field suggests your existing groups and sites, and
+  you can type a new one.
+- the **permissions** to allow on that scope: `publish`, `unpublish`, `rollback`,
+  `patch`, `purge` and `read`. The first grant starts with `publish` ticked.
 
-These two sections (**Scope** and **Capabilities**) control what the connector may
-*change*. A third section, **Read access**, controls what it may *read*:
+Use **+ Add grant** to give one connector different permissions on different
+scopes — for example `publish` on `claude` and `read` on `docs` — and the ✕ on a
+card to remove it. Each card needs a target (except global) and at least one
+permission, and approving with no grants is rejected.
 
-- Tick **Allow reading site content** to add a read grant. It is **off** by default.
-- It has its **own target** — a group subtree or a single site, prefilled from
-  `GOTIFACTS_MCP_GROUP`. Clear the field to allow reading **all sites**.
-- The target is independent of the publish target, so one connector can publish to
-  `claude` and read `docs`. Publishing does **not** imply reading: to read back what
-  it publishes, point the read target at the same group.
-- Leave every capability unticked and enable only read access for a read-only
-  connection. Approving with neither selected is rejected.
+`read` is a regular permission like the others. It lets the connector read site
+content (see [Reading site content](#reading-site-content)), applies to MCP only,
+and is **not** implied by any other permission: publishing to `claude` does not let
+the connector read `claude` back, so tick `read` on that grant too if you want it.
+For a read-only connection, tick only `read`.
 
-The read target and kind are ignored unless the checkbox is ticked. The grant uses
-the `read` [capability](/gotifacts/reference/permissions/), which applies to MCP
-only.
+A **global** grant covers every site on the instance. The card turns amber and a
+warning appears; you must tick **I understand the risk of granting access to all
+sites** before **Approve** is enabled, exactly as when creating an API key. Prefer
+a narrow group or site where you can.
 
 The connector can never act outside what you granted. Then ask Claude to publish
 a page. `publish_site` handles both a **single self-contained page** (the `html`
@@ -95,7 +99,7 @@ token obtained through the OAuth flow.
 
 ## Reading site content
 
-With a read grant (the **Read access** section of the consent screen, above),
+With a grant that includes the `read` permission (ticked on the consent screen, above),
 the connector can browse published sites **without going through forward-auth**.
 That matters for sites behind SSO that serve LLM-friendly docs: an agent's own
 HTTP fetch has no SSO session, but the MCP endpoint authenticates with its own

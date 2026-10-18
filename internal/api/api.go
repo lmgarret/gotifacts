@@ -80,8 +80,11 @@ func (s *Server) Handler() http.Handler {
 	// MCP plane (OAuth). The browser-facing consent endpoint is forward-auth'd;
 	// the machine-facing endpoints (metadata, register, token, /mcp) are not.
 	if s.mcp != nil {
-		mux.HandleFunc("GET /mcp/oauth/authorize", s.requireUser(s.mcp.HandleAuthorize))
-		mux.HandleFunc("POST /mcp/oauth/authorize", s.requireUser(s.mcp.HandleAuthorize))
+		// The consent screen itself is rendered by the SPA; the Go handler only
+		// validates the authorization request before serving it.
+		mux.HandleFunc("GET /mcp/oauth/authorize", s.requireUser(s.handleAuthorize))
+		mux.HandleFunc("GET /api/mcp/consent", s.requireUser(s.mcp.HandleConsentInfo))
+		mux.HandleFunc("POST /api/mcp/consent", s.requireUser(s.mcp.HandleConsentSubmit))
 		// Connection management lives on the forward-auth management plane.
 		mux.HandleFunc("GET /api/mcp/connections", s.requireAdmin(s.handleListConnections))
 		mux.HandleFunc("DELETE /api/mcp/connections/{id}", s.requireAdmin(s.handleRevokeConnection))
@@ -91,6 +94,12 @@ func (s *Server) Handler() http.Handler {
 	// Everything else on the apex host is the SPA.
 	mux.Handle("/", s.spa)
 	return mux
+}
+
+// handleAuthorize validates an OAuth authorization request and, if it is valid,
+// serves the SPA, whose consent view completes the flow via /api/mcp/consent.
+func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
+	s.mcp.HandleAuthorize(w, r, p, s.spa)
 }
 
 // --- middleware ---------------------------------------------------------

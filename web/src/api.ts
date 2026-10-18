@@ -98,6 +98,31 @@ export interface CreatedKey extends ApiKey {
   key: string;
 }
 
+// ConsentInfo is what the MCP consent screen needs, from GET /api/mcp/consent.
+export interface ConsentInfo {
+  client_name: string;
+  user: string;
+  base_domain: string;
+  // Pre-filled group target for the first grant (GOTIFACTS_MCP_GROUP).
+  default_target: string;
+  // Capabilities the screen offers, in display order.
+  capabilities: Capability[];
+  csrf: string;
+}
+
+// ConsentDecision is the body of POST /api/mcp/consent.
+export interface ConsentDecision {
+  client_id: string;
+  redirect_uri: string;
+  code_challenge: string;
+  code_challenge_method: string;
+  state: string;
+  csrf: string;
+  action: "approve" | "deny";
+  grants: Grant[];
+  acknowledge_global: boolean;
+}
+
 export interface CreateKeyBody {
   name: string;
   admin: boolean;
@@ -263,6 +288,19 @@ export const api = {
     }),
 
   deleteKey: (id: number) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
+
+  // getConsent validates the OAuth authorization request in `search` (the
+  // /mcp/oauth/authorize query string, with its leading "?") and returns the
+  // consent screen's data. 400s carry the reason the request is invalid.
+  getConsent: (search: string) => request<ConsentInfo>(`/api/mcp/consent${search}`),
+
+  // submitConsent records the user's decision. The server answers with the URL
+  // to send the browser to: the client's redirect URI with a code or an error.
+  submitConsent: (body: ConsentDecision) =>
+    request<{ redirect_url: string }>("/api/mcp/consent", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   listConnections: () => request<{ connections: Connection[] }>("/api/mcp/connections"),
 

@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { api, type CreatedKey } from "../api";
-import { toGrant } from "../grants";
-import { GrantCard, type DraftGrant } from "./GrantCard";
+import { newDraftGrant, toGrant, validateGrants, type DraftGrant } from "../grants";
+import { GrantsEditor } from "./GrantsEditor";
 
 interface Props {
   groups: string[];
@@ -11,39 +11,21 @@ interface Props {
   onCreated: () => void;
 }
 
-let nextId = 1;
-function newGrant(): DraftGrant {
-  return { id: nextId++, type: "group", target: "", permissions: [], expanded: true };
-}
-
 const TODAY = new Date().toISOString().slice(0, 10);
 
 export function KeyCreateModal({ groups, sites, base, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
   const [admin, setAdmin] = useState(false);
-  const [grants, setGrants] = useState<DraftGrant[]>([newGrant()]);
+  const [grants, setGrants] = useState<DraftGrant[]>(() => [newDraftGrant()]);
   const [expires, setExpires] = useState(""); // YYYY-MM-DD; "" = never
   const [ack, setAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedKey | null>(null);
 
-  const anyGlobal = !admin && grants.some((g) => g.type === "global");
-
-  const patchGrant = (id: number, patch: Partial<DraftGrant>) =>
-    setGrants((gs) => gs.map((g) => (g.id === id ? { ...g, ...patch } : g)));
-  const addGrant = () => setGrants((gs) => [...gs, newGrant()]);
-  const removeGrant = (id: number) => setGrants((gs) => gs.filter((g) => g.id !== id));
-
   const validate = (): string | null => {
     if (!name.trim()) return "Give the key a name.";
     if (admin) return null;
-    if (grants.length === 0) return "Add at least one grant, or make this an admin key.";
-    for (const g of grants) {
-      if (g.type !== "global" && !g.target.trim()) return "Each group/site grant needs a target.";
-      if (g.permissions.length === 0) return "Each grant needs at least one permission.";
-    }
-    if (anyGlobal && !ack) return "Acknowledge the global-scope risk to continue.";
-    return null;
+    return validateGrants(grants, ack, "Add at least one grant, or make this an admin key.");
   };
 
   const submit = async (e: FormEvent) => {
@@ -100,45 +82,16 @@ export function KeyCreateModal({ groups, sites, base, onClose, onCreated }: Prop
             </label>
 
             {!admin && (
-              <div className="grants-section">
-                <div className="grants-head">
-                  <span className="field-label">Access grants</span>
-                  <span className="field-hint muted">
-                    Each grant gives a set of permissions on a group, a single site, or all sites.
-                  </span>
-                </div>
-
-                {grants.map((g, i) => (
-                  <GrantCard
-                    key={g.id}
-                    grant={g}
-                    index={i}
-                    groups={groups}
-                    sites={sites}
-                    base={base}
-                    removable={grants.length > 1}
-                    onChange={(patch) => patchGrant(g.id, patch)}
-                    onRemove={() => removeGrant(g.id)}
-                  />
-                ))}
-
-                <button type="button" className="small add-grant" onClick={addGrant}>
-                  + Add grant
-                </button>
-
-                {anyGlobal && (
-                  <div className="global-warning">
-                    <p>
-                      ⚠️ <strong>This key has a global grant.</strong> It can act on{" "}
-                      <strong>every site</strong> on this instance — not just one group or site.
-                    </p>
-                    <label className="checkbox">
-                      <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-                      I understand the risk of granting access to all sites.
-                    </label>
-                  </div>
-                )}
-              </div>
+              <GrantsEditor
+                grants={grants}
+                onGrantsChange={setGrants}
+                groups={groups}
+                sites={sites}
+                base={base}
+                ack={ack}
+                onAckChange={setAck}
+                subject="key"
+              />
             )}
 
             <label className="field">

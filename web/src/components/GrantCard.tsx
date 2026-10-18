@@ -1,14 +1,6 @@
 import { CAPABILITIES, type Capability } from "../api";
-import { CAP_INFO, scopeImpact, type ScopeType } from "../grants";
+import { CAP_INFO, scopeImpact, type DraftGrant, type ScopeType } from "../grants";
 import { TargetSelect } from "./TargetSelect";
-
-export interface DraftGrant {
-  id: number;
-  type: ScopeType;
-  target: string;
-  permissions: Capability[];
-  expanded: boolean;
-}
 
 interface Props {
   grant: DraftGrant;
@@ -16,6 +8,8 @@ interface Props {
   groups: string[];
   sites: string[];
   base: string;
+  // capabilities lists the permission checkboxes offered, in display order.
+  capabilities?: Capability[];
   removable: boolean;
   onChange: (patch: Partial<DraftGrant>) => void;
   onRemove: () => void;
@@ -30,7 +24,17 @@ function scopeSummary(g: DraftGrant): string {
   return g.target || "(choose a target)";
 }
 
-export function GrantCard({ grant: g, index, groups, sites, base, removable, onChange, onRemove }: Props) {
+export function GrantCard({
+  grant: g,
+  index,
+  groups,
+  sites,
+  base,
+  capabilities = CAPABILITIES,
+  removable,
+  onChange,
+  onRemove,
+}: Props) {
   const caps = g.permissions.length ? g.permissions.join(", ") : "no permissions yet";
 
   const toggleCap = (cap: Capability) =>
@@ -95,7 +99,7 @@ export function GrantCard({ grant: g, index, groups, sites, base, removable, onC
 
           <fieldset className="perm-set">
             <legend>Permissions</legend>
-            {CAPABILITIES.map((cap) => (
+            {capabilities.map((cap) => (
               <label className="perm-row" key={cap}>
                 <input
                   type="checkbox"
