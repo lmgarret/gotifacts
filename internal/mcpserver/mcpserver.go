@@ -1,5 +1,8 @@
 // Package mcpserver embeds an OAuth 2.1-protected Model Context Protocol server
-// inside gotifacts, exposing a single publish_site tool over Streamable HTTP.
+// inside gotifacts, exposing site management tools (publish_site,
+// unpublish_site, update_site, rollback_site, list_revisions, restore_site,
+// purge_site) and read-only browsing tools (list_sites, list_files,
+// read_file, search_site) over Streamable HTTP.
 //
 // It exists because Claude's mobile/web "custom connector" UI authenticates
 // remote MCP servers exclusively via OAuth (no bearer/header field), so the
@@ -74,7 +77,7 @@ type Service struct {
 }
 
 // New constructs the MCP service, building the MCP server, registering the
-// publish_site tool, and wrapping the Streamable HTTP transport with bearer
+// tools, and wrapping the Streamable HTTP transport with bearer
 // authentication.
 func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.Logger) (*Service, error) {
 	csrf := make([]byte, 32)
@@ -118,6 +121,7 @@ func New(cfg *config.Config, st *store.Store, pub *ingest.Publisher, log *slog.L
 		Name:        "purge_site",
 		Description: "Permanently and immediately delete a soft-deleted (quarantined) site, bypassing the retention TTL. This is irreversible — the site's files are destroyed. Only use when you are certain the site should be gone. Clients that support elicitation are asked to confirm before anything is deleted; answer the prompt and the call completes on its own.",
 	}, s.purgeSite)
+	s.addReadTools(srv)
 
 	// gotifacts' tool set is compiled in and never changes at runtime, so the
 	// SDK's default TTL of 0 ("immediately stale") makes every client re-list

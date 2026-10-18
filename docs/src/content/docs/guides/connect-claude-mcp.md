@@ -11,8 +11,9 @@ variables. Instead, expose gotifacts' **MCP connector**: an OAuth 2.1-protected
 [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` that
 exposes the full site lifecycle as tools (`publish_site`, `update_site`,
 `unpublish_site`, `list_revisions`, `rollback_site`, `restore_site`,
-`purge_site`). Claude's
-"custom connector" UI authenticates remote MCP servers exclusively via OAuth, so
+`purge_site`) and lets an agent browse the content of sites it was granted
+read access to (`list_sites`, `list_files`, `read_file`, `search_site`).
+Claude's "custom connector" UI authenticates remote MCP servers exclusively via OAuth, so
 this is the only path that works on mobile/web.
 
 ## 1. Enable it on the server
@@ -91,6 +92,45 @@ and `GOTIFACTS_MAX_EXTRACT_ENTRIES` (10 000) — see the
 
 For the **API MCP connector** or **Claude Code**, the same server works with a
 token obtained through the OAuth flow.
+
+## Reading site content
+
+With a read grant (the **Read access** section of the consent screen, above),
+the connector can browse published sites **without going through forward-auth**.
+That matters for sites behind SSO that serve LLM-friendly docs: an agent's own
+HTTP fetch has no SSO session, but the MCP endpoint authenticates with its own
+OAuth token and gotifacts reads the files straight from disk. Four read-only
+tools are added. They read the **live revision** only; archived revisions and
+unpublished sites are not readable.
+
+| Tool | What it does |
+| --- | --- |
+| `list_sites` | Discover readable sites: `group`, `slug`, `url`, title, description, tags, `hidden`, and whether the site serves `llms_txt` / `llms_full_txt`. Filter with `query`, `tag`, `group`; page with `limit` (default 50, max 200) and `offset`. |
+| `list_files` | Flat, sorted list of a site's files as `{path, size}`. Restrict with `prefix`; `limit` defaults to 500 (max 2000), and `truncated` says whether more exist. |
+| `read_file` | Read one **text** file. With no `path` it returns `llms.txt` if the site has one, else `index.html`; a directory path (or one ending in `/`) resolves to its `index.html`, and a leading `/` is ignored. Binary files are refused. Pages are 64 KiB by default (`limit`, max 256 KiB): when `truncated` is true, pass `next_offset` as `offset` to continue. |
+| `search_site` | Case-insensitive plain-text search (no regex) over a site's text files, returning `{path, line, text}` per matching line. Binary files and files over 2 MiB are skipped. `max_results` defaults to 50 (max 200). |
+
+Start with `llms.txt`: call `list_sites`, pick a site marked `llms_txt`, then
+`read_file` with just the `slug` and `group`. Follow its links with `read_file`,
+or use `search_site` instead of reading a large `llms-full.txt` end to end.
+
+Things to know:
+
+- **Pass the `group` that `list_sites` returned.** For `list_files`, `read_file`
+  and `search_site`, an empty `group` defaults to `GOTIFACTS_MCP_GROUP`, exactly
+  like the publishing tools. `list_sites` has no such default: empty means all
+  groups. Sites with no group (served at `<slug>.<base-domain>`) show up in
+  `list_sites` but cannot be addressed by the other three tools.
+- **Access is exactly the read grant.** A site the connection may not read, a
+  missing site and an unpublished site all return the same *not found or not
+  readable by this connection* error, so the tools cannot be used to discover
+  which sites exist. Publish-only connections cannot read anything.
+- **Hidden sites** are left out of `list_sites` unless you pass
+  `include_hidden: true`, but a read grant that covers a hidden site can read it,
+  like any other site.
+- Output is raw text: HTML is not converted or rendered.
+- Content returned by these tools enters the agent's context, so a site can try
+  to steer the agent. See [prompt injection](/gotifacts/explanation/security/#reading-site-content-over-mcp-and-prompt-injection).
 
 ## Confirming a purge
 
