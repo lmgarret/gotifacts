@@ -18,10 +18,28 @@ capabilities to a target.
 | `rollback` | list revisions and restore a previous version, or promote a chosen revision — `GET`/`POST /ingest/sites/…/revisions[/rollback]` |
 | `patch` | edit site metadata — `PATCH /ingest/sites/…` |
 | `purge` | permanently destroy a quarantined site — `POST /ingest/sites/…/purge` |
+| `read` | read site content over MCP — list sites and files, read text files, search. **MCP only**: no ingest endpoint uses it |
 
 Unpublish and purge are intentionally separate: `unpublish` takes a site offline (recoverable within the TTL), while `purge` is irreversible. Automation that only tears down previews should hold `unpublish`; automation that also needs to destroy data permanently should hold both.
 
 Over MCP, `purge_site` additionally asks the user to confirm before deleting anything, when the connected client supports elicitation — see [Confirming a purge](/gotifacts/guides/connect-claude-mcp/#confirming-a-purge). That is a prompt, not a permission: the grant is still what decides whether the call is allowed at all, and a client that cannot be prompted purges in one call.
+
+### Reading over MCP
+
+`read` is checked per site, like every other capability, and write capabilities
+do **not** imply it: a connection that can `publish` to `claude` cannot read
+`claude` back unless it also holds `read` there. Sites a grant does not cover
+are reported as not found or not readable, with the same error whether the site
+is missing, deleted or just out of scope.
+
+A **hidden** site is only hidden from the portal listing for non-admins; it is
+still served at its URL. Accordingly, a `read` grant that covers a hidden site
+can read it. Site listings leave hidden sites out by default and include them
+only when asked.
+
+An [MCP connection](/gotifacts/guides/connect-claude-mcp/) can carry a
+**separate read grant** with its own target, so one connector can publish to
+one place (for example `claude`) and read another (for example `docs`).
 
 ## Roles
 
@@ -67,4 +85,5 @@ Existing tokens keep working unchanged. A migration backfills grants from the ol
 [MCP connector](/gotifacts/guides/connect-claude-mcp/) tokens carry the **same**
 grant model: at the consent screen the approver picks a target (group subtree or
 single site) and the capabilities to allow, prefilled from `GOTIFACTS_MCP_GROUP`
-+ `publish`. The connector can never act outside what was granted.
++ `publish`. An optional **Read access** section adds a second grant with the
+`read` capability and its own target. The connector can never act outside what was granted.

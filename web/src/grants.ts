@@ -7,6 +7,7 @@ export const CAP_INFO: Record<Capability, { desc: string }> = {
   rollback: { desc: "Restore a site’s previous version." },
   patch: { desc: "Edit site metadata — title, tags, visibility." },
   purge: { desc: "Permanently destroy a quarantined (unpublished) site." },
+  read: { desc: "Read site files over MCP (list, read, search). Not used by the ingest API." },
 };
 
 // ScopeType is the UI-level grant scope. "global" maps to a group grant with an

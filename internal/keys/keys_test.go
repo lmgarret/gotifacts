@@ -50,6 +50,9 @@ func TestParseCapability(t *testing.T) {
 	if c, err := ParseCapability(" unpublish "); err != nil || c != CapUnpublish {
 		t.Fatalf("unpublish: %v %v", c, err)
 	}
+	if c, err := ParseCapability(" READ "); err != nil || c != CapRead {
+		t.Fatalf("read: got %q, %v", c, err)
+	}
 	if _, err := ParseCapability("root"); err == nil {
 		t.Fatal("expected invalid capability error")
 	}

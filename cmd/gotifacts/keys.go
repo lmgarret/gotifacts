@@ -50,7 +50,7 @@ func keysCreate(ctx context.Context, st *store.Store, args []string) error {
 	name := fs.String("name", "", "human-readable key name (required)")
 	admin := fs.Bool("admin", false, "create a superuser key (full access; no grants)")
 	var groupSpecs, siteSpecs specList
-	fs.Var(&groupSpecs, "grant", "group grant 'group:cap1,cap2' (repeatable); empty group = all sites; caps: publish,unpublish,rollback,patch")
+	fs.Var(&groupSpecs, "grant", "group grant 'group:cap1,cap2' (repeatable); empty group = all sites; caps: publish,unpublish,rollback,patch,purge,read")
 	fs.Var(&siteSpecs, "grant-site", "site grant 'group/slug:cap1,cap2' (repeatable); confined to that one site")
 	expiresIn := fs.Duration("expires-in", 0, "expire the key after this duration (e.g. 720h); 0 = never")
 	expiresAt := fs.String("expires-at", "", "expire the key at this RFC3339/YYYY-MM-DD instant; overrides --expires-in")
