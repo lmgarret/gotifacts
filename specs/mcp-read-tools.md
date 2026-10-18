@@ -50,31 +50,59 @@ authorized agent without going through the proxy.
   ingest endpoint uses it in v1. The UI description must say it applies to MCP
   connectors.
 
-### Consent screen
+### Consent screen: separate read target
 
-- Append `keys.CapRead` to `consentCapabilities` in
-  `internal/mcpserver/oauth.go`. It is **unchecked** by default; `publish` stays
-  the only pre-checked capability.
-- Grants keep a single target (group subtree or site). A connection that
-  publishes to `claude` and reads `docs` is out of scope for v1 (see open
-  questions).
+This is the OAuth page at `/mcp/oauth/authorize`
+(`internal/mcpserver/oauth.go`, `consentTmpl`). Today it collects one target
+(kind + path) and a set of capabilities, and produces one grant. A connection
+must be able to publish to one place (e.g. `claude`) and read another (e.g.
+`docs`), so reading gets its **own target**:
+
+- `read` is **not** added to `consentCapabilities`. The existing "Scope" and
+  "Capabilities" fieldsets keep their meaning: write access.
+- Add a third fieldset, **Read access**:
+  - a checkbox `read_enabled` ("Allow reading site content"), **unchecked** by
+    default;
+  - its own kind radios, `read_target_kind` (`group` | `site`, default
+    `group`);
+  - its own text field `read_target`, prefilled with `DefaultTarget`, with the
+    placeholder `e.g. docs or docs/app — empty means all sites`.
+  - The kind radios and target field may stay visible when the checkbox is off.
+    No JS is required, but the server must ignore them unless `read_enabled` is
+    set.
+- `parseConsentGrant` becomes `parseConsentGrants(r) ([]store.Grant, error)`:
+  - The write grant is built as today, but only when at least one capability is
+    checked.
+  - When `read_enabled` is set, it appends
+    `store.Grant{Kind: read kind, Target: read target, Permissions:
+    []keys.Capability{keys.CapRead}}`. The read target is validated with the
+    same `normalizeTarget` / `validateGrantTarget`.
+  - Zero grants is an error: `select at least one capability or enable read
+    access`. A read-only connection (no write capabilities) is valid.
+- `authorizeSubmit` stores the returned slice in `AuthCode.Grants`. The
+  storage, token exchange and `Principal.Can` already handle multiple grants.
+  Log one line per grant in the "MCP consent granted" log.
+- The portal's MCP connections view already renders a list of grants; check
+  that a two-grant connection displays correctly.
+- Write grants do **not** imply `read`. To read back what it publishes, set
+  the read target to the same group.
+- The page must stay usable at ~375px.
 
 ### Hidden sites
 
-Hidden sites are admin-only for viewers today (`internal/api/files.go`). For
-MCP:
+"Hidden" only removes a site from the portal listing for non-admins; the site
+is still served at its URL. For MCP:
 
-- They are readable only by an admin principal, or through a **site** grant
-  whose target is exactly that site.
-- Group grants (including global) do not reveal hidden sites, either in
-  `list_sites` or in direct reads. A hidden site behaves as not found, with the
-  same error message as a missing site, so its existence doesn't leak.
+- A `read` grant that covers a hidden site can read it, like any other site.
+- `list_sites` leaves hidden sites out by default, mirroring the portal, and
+  includes them when called with `include_hidden: true`. Each listed site
+  carries a `hidden` flag.
 
 ### Not-found vs forbidden
 
-For any site the caller can't read (no grant, hidden, deleted, or missing),
-return one uniform error: `site "<slug>" in group "<group>" not found or not
-readable by this connection`.
+For any site the caller can't read (no grant, deleted, or missing), return one
+uniform error: `site "<slug>" in group "<group>" not found or not readable by
+this connection`.
 
 ## Tools
 
@@ -85,7 +113,10 @@ go-sdk v1.8.0).
 
 `group` follows the existing tools' convention: when empty it defaults to
 `cfg.MCPGroup`. Tool descriptions must say so, and must tell the agent to pass
-the `group` returned by `list_sites`.
+the `group` returned by `list_sites`. Known limitation, shared with the existing
+tools and out of scope here: sites with no group (`""`, e.g. `docs.<base>`)
+can't be addressed by `list_files` / `read_file` / `search_site`. `list_sites`
+still lists them.
 
 Each tool returns both structured output (typed `Out` struct) and a short
 `TextContent` summary, like the existing tools. Errors use `errorResult(...)`.
@@ -101,19 +132,21 @@ Input:
 | `query` | string, optional | substring on slug/title/description (`store.ListFilter.Query`) |
 | `tag` | string, optional | exact tag |
 | `group` | string, optional | group subtree; **no** `MCPGroup` default here (empty means all) |
+| `include_hidden` | bool, optional | default false |
 | `limit` | int, optional | default 50, max 200 |
 | `offset` | int, optional | default 0 |
 
-Behaviour: call `store.ListSites` with `IncludeHide: true`, keep only the sites
-the caller may read (the hidden-site rule applies), then page in memory. Site
-counts are small enough for that.
+Behaviour: call `store.ListSites` with `IncludeHide: in.IncludeHidden`, keep
+only the sites the caller may read, then page in memory. Site counts are small
+enough for that.
 
 Output: `{ sites: [...], total: int }`, where each site is:
 
 ```json
 { "group": "docs", "slug": "app", "url": "https://app.docs.example.com/",
   "title": "...", "description": "...", "tags": ["..."],
-  "updated_at": "RFC3339", "llms_txt": true, "llms_full_txt": false }
+  "updated_at": "RFC3339", "hidden": false,
+  "llms_txt": true, "llms_full_txt": false }
 ```
 
 `llms_txt` / `llms_full_txt` come from stat-ing those files at the root of the
@@ -234,9 +267,11 @@ path. Don't log content. Log denials at info, mirroring the existing tools.
 
 - `docs/openapi.yaml`: add `read` to the capability enum (around line 756).
 - `docs/src/content/docs/reference/permissions.md`: add a `read` row to the
-  capabilities table, and the hidden-site rule.
+  capabilities table, the hidden-site behaviour, and the fact that an MCP
+  connection can carry a separate read grant.
 - `docs/src/content/docs/guides/connect-claude-mcp.md`: describe the new tools,
-  the `read` checkbox on the consent screen, and `llms.txt` as the entry point.
+  the "Read access" section of the consent screen, and `llms.txt` as the entry
+  point.
 - `docs/src/content/docs/explanation/security.md`: add the prompt-injection
   note.
 - `internal/mcpserver/mcpserver.go`: update the package doc comment, which
@@ -250,8 +285,15 @@ In `internal/mcpserver` (follow `newTestService` / existing tool tests):
 - Authorization: no `read` → every tool refuses. A `read` group grant on
   `docs` → reads `docs/*` and is refused on `claude/*`. A site grant → only
   that site. Admin → everything.
-- Hidden: a group grant can't list or read a hidden site; a site grant on it
-  can. The error text matches the not-found text.
+- Hidden: a covering `read` grant can read a hidden site; `list_sites` omits it
+  by default and includes it (with `hidden: true`) when `include_hidden` is set.
+- Not-found: no grant, deleted and missing sites all return the same error
+  text.
+- Consent (`oauth.go` tests): write-only → one grant, as today. Write + read
+  with different targets → two grants, and the token can publish to the first
+  and read only the second. Read-only (no capabilities) → one `read` grant.
+  Neither → error. Invalid read target → error. `read_target` is ignored when
+  `read_enabled` is unset.
 - `list_sites`: filtering, paging, `llms_txt` flags.
 - `read_file`: default `llms.txt`, falling back to `index.html`; directory
   path → `index.html`; leading `/`; traversal (`../`, encoded segments) → not
@@ -269,20 +311,17 @@ Run before committing: `go test -race ./...`, `golangci-lint run ./...`,
 ## Suggested commits
 
 1. `refactor: extract site filesystem helpers into internal/sitefs`
-2. `feat(keys): add read capability` (plus consent, web UI, openapi enum,
-   permissions doc)
-3. `feat(mcp): add read-only site browsing tools` (tools, tests, guide and
+2. `feat(keys): add read capability` (plus web UI, openapi enum, permissions
+   doc)
+3. `feat(mcp): add separate read target to the consent screen`
+4. `feat(mcp): add read-only site browsing tools` (tools, tests, guide and
    security docs)
 
-## Open questions
+## Decisions
 
-1. **Hidden sites:** is "site grant or admin only" the right rule, or should a
-   `read` group grant also cover hidden sites, since hidden only means unlisted
-   in the portal?
-2. **One target per connection:** reading `docs` while publishing to `claude`
-   needs two grants. The consent screen currently creates one. Should it allow
-   a separate read target (e.g. a second target field shown when `read` is
-   checked)? v1 assumes no.
-3. **`group` default:** read tools inherit the `MCPGroup` default, so flat
-   sites (group `""`) can't be addressed by omitting `group`. That's already
-   true of the existing tools. Should it be fixed for all tools separately?
+- Hidden sites: readable under any covering `read` grant; `list_sites` omits
+  them unless `include_hidden` is set.
+- Consent: reading has its own target (a "Read access" section), so one
+  connection can publish to one place and read another.
+- `group` default: the read tools keep the existing tools' behaviour. Fixing
+  access to sites with no group is a separate change.
