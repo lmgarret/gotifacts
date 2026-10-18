@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -250,6 +251,9 @@ button{font:inherit;cursor:pointer;border-radius:8px;padding:.5rem 1.1rem;font-s
 .approve:hover{background:var(--accent-strong);border-color:var(--accent-strong)}
 .deny{background:var(--surface);color:var(--text);border:1px solid var(--border)}
 .deny:hover{border-color:var(--accent)}
+.hint{margin:.5rem 0 0;color:var(--muted);font-size:.8rem}
+label,code,.subtitle{overflow-wrap:anywhere}
+@media(max-width:40rem){main{padding:1.5rem .75rem}.card{padding:1.25rem}fieldset{padding:.6rem .75rem}.actions button{flex:1 1 auto}}
 </style>
 </head>
 <body>
@@ -277,6 +281,14 @@ button{font:inherit;cursor:pointer;border-radius:8px;padding:.5rem 1.1rem;font-s
         <legend>Capabilities</legend>
         {{range .Capabilities}}<label><input type="checkbox" name="capability" value="{{.Value}}"{{if .Checked}} checked{{end}}> <code>{{.Value}}</code></label>
         {{end}}
+      </fieldset>
+      <fieldset>
+        <legend>Read access</legend>
+        <label><input type="checkbox" name="read_enabled" value="1"> Allow reading site content</label>
+        <label><input type="radio" name="read_target_kind" value="group" checked> Group subtree (and everything beneath it)</label>
+        <label><input type="radio" name="read_target_kind" value="site"> A single site (exact <code>group/slug</code>)</label>
+        <label style="flex-direction:column;align-items:stretch">Read target<input type="text" name="read_target" value="{{.DefaultTarget}}" placeholder="e.g. docs or docs/app — empty means all sites"></label>
+        <p class="hint">Applies only when the box above is checked. Write access above does not include reading.</p>
       </fieldset>
       <div class="actions">
         <button class="approve" name="action" value="approve" type="submit">Approve</button>
@@ -347,7 +359,7 @@ func (s *Service) authorizeSubmit(w http.ResponseWriter, r *http.Request, p *aut
 		return
 	}
 
-	grant, err := parseConsentGrant(r)
+	grants, err := parseConsentGrants(r)
 	if err != nil {
 		redirectWithError(w, r, ap.RedirectURI, ap.State, "invalid_scope", err.Error())
 		return
@@ -365,15 +377,17 @@ func (s *Service) authorizeSubmit(w http.ResponseWriter, r *http.Request, p *aut
 		RedirectURI:         ap.RedirectURI,
 		CodeChallenge:       ap.CodeChallenge,
 		CodeChallengeMethod: ap.CodeChallengeMethod,
-		Grants:              []store.Grant{grant},
+		Grants:              grants,
 		ExpiresAt:           time.Now().Add(codeTTL),
 	}); err != nil {
 		s.log.Error("failed to persist authorization code", "user", p.User, "client_id", ap.ClientID, "err", err)
 		redirectWithError(w, r, ap.RedirectURI, ap.State, "server_error", "could not persist code")
 		return
 	}
-	s.log.Info("MCP consent granted", "user", p.User, "client_id", ap.ClientID,
-		"target_kind", grant.Kind, "target", grant.Target, "capabilities", keys.JoinCapabilities(grant.Permissions))
+	for _, g := range grants {
+		s.log.Info("MCP consent granted", "user", p.User, "client_id", ap.ClientID,
+			"target_kind", g.Kind, "target", g.Target, "capabilities", keys.JoinCapabilities(g.Permissions))
+	}
 
 	u, _ := url.Parse(ap.RedirectURI)
 	qq := u.Query()
@@ -548,19 +562,61 @@ func (s *Service) issueTokens(w http.ResponseWriter, r *http.Request, connID, cl
 	})
 }
 
-// parseConsentGrant builds the single grant the approving user selected on the
-// consent form (target kind + target path + capabilities).
-func parseConsentGrant(r *http.Request) (store.Grant, error) {
-	kind := store.ParseGrantKind(r.PostForm.Get("target_kind"))
-	target := normalizeTarget(r.PostForm.Get("target"))
-	caps, err := keys.ParseCapabilities(strings.Join(r.PostForm["capability"], ","))
+// parseConsentGrants builds the grants the approving user selected on the
+// consent form. The write grant (target_kind + target + capabilities) is only
+// produced when at least one capability is checked. The read grant is only
+// produced when read_enabled is set, with its own target
+// (read_target_kind + read_target); the read fields are ignored otherwise.
+// Selecting nothing at all is an error.
+func parseConsentGrants(r *http.Request) ([]store.Grant, error) {
+	var grants []store.Grant
+
+	caps, err := consentWriteCaps(r.PostForm["capability"])
 	if err != nil {
-		return store.Grant{}, errors.New("select at least one capability")
+		return nil, err
 	}
-	if err := validateGrantTarget(kind, target); err != nil {
-		return store.Grant{}, err
+	if len(caps) > 0 {
+		kind := store.ParseGrantKind(r.PostForm.Get("target_kind"))
+		target := normalizeTarget(r.PostForm.Get("target"))
+		if err := validateGrantTarget(kind, target); err != nil {
+			return nil, err
+		}
+		grants = append(grants, store.Grant{Kind: kind, Target: target, Permissions: caps})
 	}
-	return store.Grant{Kind: kind, Target: target, Permissions: caps}, nil
+
+	if r.PostForm.Get("read_enabled") != "" {
+		kind := store.ParseGrantKind(r.PostForm.Get("read_target_kind"))
+		target := normalizeTarget(r.PostForm.Get("read_target"))
+		if err := validateGrantTarget(kind, target); err != nil {
+			return nil, fmt.Errorf("read target: %w", err)
+		}
+		grants = append(grants, store.Grant{Kind: kind, Target: target, Permissions: []keys.Capability{keys.CapRead}})
+	}
+
+	if len(grants) == 0 {
+		return nil, errors.New("select at least one capability or enable read access")
+	}
+	return grants, nil
+}
+
+// consentWriteCaps parses the checked write capabilities. Blank values are
+// skipped, and only capabilities offered on the consent screen are accepted
+// (read has its own section and target).
+func consentWriteCaps(vals []string) ([]keys.Capability, error) {
+	var caps []keys.Capability
+	for _, v := range vals {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		c, err := keys.ParseCapability(v)
+		if err != nil || !slices.Contains(consentCapabilities, c) {
+			return nil, errors.New("invalid capability")
+		}
+		if !slices.Contains(caps, c) {
+			caps = append(caps, c)
+		}
+	}
+	return caps, nil
 }
 
 func normalizeTarget(t string) string {

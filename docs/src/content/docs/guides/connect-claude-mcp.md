@@ -52,6 +52,22 @@ pick:
   `GOTIFACTS_MCP_GROUP` (default `claude`), and
 - the **capabilities** to allow (`publish`, `patch`, `unpublish`, `rollback`, `purge`).
 
+These two sections (**Scope** and **Capabilities**) control what the connector may
+*change*. A third section, **Read access**, controls what it may *read*:
+
+- Tick **Allow reading site content** to add a read grant. It is **off** by default.
+- It has its **own target** — a group subtree or a single site, prefilled from
+  `GOTIFACTS_MCP_GROUP`. Clear the field to allow reading **all sites**.
+- The target is independent of the publish target, so one connector can publish to
+  `claude` and read `docs`. Publishing does **not** imply reading: to read back what
+  it publishes, point the read target at the same group.
+- Leave every capability unticked and enable only read access for a read-only
+  connection. Approving with neither selected is rejected.
+
+The read target and kind are ignored unless the checkbox is ticked. The grant uses
+the `read` [capability](/gotifacts/reference/permissions/), which applies to MCP
+only.
+
 The connector can never act outside what you granted. Then ask Claude to publish
 a page. `publish_site` handles both a **single self-contained page** (the `html`
 argument) and a **multi-file site** — an `index.html` plus separate CSS/JS/image

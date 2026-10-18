@@ -884,3 +884,236 @@ func TestPurgeSiteToolWithoutElicitation(t *testing.T) {
 		t.Fatalf("quarantine dir should be gone after purge: %v", err)
 	}
 }
+
+// consentResult is the outcome of one consent-screen submission.
+type consentResult struct {
+	errCode, errDesc string
+	principal        *auth.Principal
+	grants           []store.Grant
+}
+
+// approveConsent registers a client, submits the consent form with the given
+// fields on top of the standard OAuth parameters, and, when the request was
+// approved, exchanges the code and returns the token's principal.
+func approveConsent(t *testing.T, s *Service, fields url.Values) consentResult {
+	t.Helper()
+	srv := httptest.NewServer(s.testHandler(&auth.Principal{User: "tester"}))
+	defer srv.Close()
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	const redirectURI = "https://claude.ai/cb"
+
+	var reg registerResponse
+	postJSON(t, srv.URL+"/mcp/oauth/register", registerRequest{RedirectURIs: []string{redirectURI}, ClientName: "Claude"}, &reg)
+
+	verifier := "this-is-a-sufficiently-long-pkce-code-verifier-1234567890"
+	sum := sha256.Sum256([]byte(verifier))
+	form := url.Values{
+		"client_id":             {reg.ClientID},
+		"redirect_uri":          {redirectURI},
+		"code_challenge":        {base64.RawURLEncoding.EncodeToString(sum[:])},
+		"code_challenge_method": {"S256"},
+		"state":                 {"xyz"},
+		"csrf":                  {s.csrfToken("tester")},
+		"action":                {"approve"},
+	}
+	for k, v := range fields {
+		form[k] = v
+	}
+	resp, err := noRedirect.Do(ctxReq(t, http.MethodPost, srv.URL+"/mcp/oauth/authorize",
+		strings.NewReader(form.Encode()), "application/x-www-form-urlencoded"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("approve status = %d, want 302", resp.StatusCode)
+	}
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	q := loc.Query()
+	if e := q.Get("error"); e != "" {
+		return consentResult{errCode: e, errDesc: q.Get("error_description")}
+	}
+
+	var tok tokenResponse
+	postForm(t, srv.URL+"/mcp/oauth/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {q.Get("code")},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {reg.ClientID},
+		"code_verifier": {verifier},
+	}, &tok)
+	ti, err := s.verifyToken(context.Background(), tok.AccessToken, nil)
+	if err != nil {
+		t.Fatalf("verifyToken: %v", err)
+	}
+	p, _ := ti.Extra["principal"].(*auth.Principal)
+	if p == nil {
+		t.Fatal("token has no principal")
+	}
+	return consentResult{principal: p, grants: p.Grants}
+}
+
+// consentNoGrantsMsg is the error returned when the consent form selects nothing.
+const consentNoGrantsMsg = "select at least one capability or enable read access"
+
+func TestConsentGrantsWriteOnly(t *testing.T) {
+	s, _ := newTestService(t)
+	res := approveConsent(t, s, url.Values{
+		"target_kind": {"group"}, "target": {"claude"}, "capability": {"publish", "patch"},
+	})
+	if res.errCode != "" {
+		t.Fatalf("unexpected error: %s: %s", res.errCode, res.errDesc)
+	}
+	if len(res.grants) != 1 || res.grants[0].Target != "claude" || keys.HasCapability(res.grants[0].Permissions, keys.CapRead) {
+		t.Fatalf("grants = %+v, want one write grant on claude", res.grants)
+	}
+	if !res.principal.CanPublishTo("claude", "report") || res.principal.Can(keys.CapRead, "claude", "report") {
+		t.Fatal("write-only token should publish but not read")
+	}
+}
+
+func TestConsentGrantsWriteAndRead(t *testing.T) {
+	s, _ := newTestService(t)
+	res := approveConsent(t, s, url.Values{
+		"target_kind": {"group"}, "target": {"claude"}, "capability": {"publish"},
+		"read_enabled": {"1"}, "read_target_kind": {"site"}, "read_target": {" Docs/App/ "},
+	})
+	if res.errCode != "" {
+		t.Fatalf("unexpected error: %s: %s", res.errCode, res.errDesc)
+	}
+	if len(res.grants) != 2 {
+		t.Fatalf("grants = %+v, want 2", res.grants)
+	}
+	if g := res.grants[1]; g.Kind != store.GrantSite || g.Target != "docs/app" || len(g.Permissions) != 1 || g.Permissions[0] != keys.CapRead {
+		t.Fatalf("read grant = %+v", g)
+	}
+	p := res.principal
+	if !p.CanPublishTo("claude", "report") || p.CanPublishTo("docs", "app") {
+		t.Fatal("token should publish to claude only")
+	}
+	if !p.Can(keys.CapRead, "docs", "app") {
+		t.Fatal("token should read docs/app")
+	}
+	if p.Can(keys.CapRead, "claude", "report") || p.Can(keys.CapRead, "docs", "other") {
+		t.Fatal("read must be confined to the read target; publish does not imply read")
+	}
+}
+
+func TestConsentGrantsReadOnly(t *testing.T) {
+	s, _ := newTestService(t)
+	res := approveConsent(t, s, url.Values{
+		"target_kind": {"group"}, "target": {"claude"},
+		"read_enabled": {"1"}, "read_target_kind": {"group"}, "read_target": {"docs"},
+	})
+	if res.errCode != "" {
+		t.Fatalf("unexpected error: %s: %s", res.errCode, res.errDesc)
+	}
+	if len(res.grants) != 1 || res.grants[0].Target != "docs" || res.grants[0].Permissions[0] != keys.CapRead {
+		t.Fatalf("grants = %+v, want one read grant on docs", res.grants)
+	}
+	if res.principal.CanPublishTo("docs", "x") || !res.principal.Can(keys.CapRead, "docs", "x") {
+		t.Fatal("read-only token should read but not publish")
+	}
+}
+
+func TestConsentGrantsReadOnlyEmptyTarget(t *testing.T) {
+	s, _ := newTestService(t)
+	res := approveConsent(t, s, url.Values{
+		"read_enabled": {"1"}, "read_target_kind": {"group"}, "read_target": {""},
+	})
+	if res.errCode != "" {
+		t.Fatalf("unexpected error: %s: %s", res.errCode, res.errDesc)
+	}
+	if !res.principal.Can(keys.CapRead, "any", "site") {
+		t.Fatal("empty read target should cover all sites")
+	}
+}
+
+func TestConsentGrantsNeither(t *testing.T) {
+	s, _ := newTestService(t)
+	res := approveConsent(t, s, url.Values{
+		"target_kind": {"group"}, "target": {"claude"},
+		"read_target_kind": {"group"}, "read_target": {"docs"},
+	})
+	if res.errCode != "invalid_scope" || res.errDesc != consentNoGrantsMsg {
+		t.Fatalf("got %q / %q, want invalid_scope / %q", res.errCode, res.errDesc, consentNoGrantsMsg)
+	}
+}
+
+func TestConsentGrantsInvalidReadTarget(t *testing.T) {
+	s, _ := newTestService(t)
+	for _, rt := range []string{"Bad_Label", "a/b/c/d/e/f"} {
+		res := approveConsent(t, s, url.Values{
+			"target_kind": {"group"}, "target": {"claude"}, "capability": {"publish"},
+			"read_enabled": {"1"}, "read_target_kind": {"group"}, "read_target": {rt},
+		})
+		if res.errCode != "invalid_scope" {
+			t.Fatalf("read_target %q: got error %q, want invalid_scope", rt, res.errCode)
+		}
+	}
+	// A site read grant must name a concrete site.
+	res := approveConsent(t, s, url.Values{
+		"capability": {"publish"}, "target": {"claude"},
+		"read_enabled": {"1"}, "read_target_kind": {"site"}, "read_target": {""},
+	})
+	if res.errCode != "invalid_scope" {
+		t.Fatalf("empty site read target: got %q, want invalid_scope", res.errCode)
+	}
+}
+
+func TestConsentGrantsReadFieldsIgnored(t *testing.T) {
+	s, _ := newTestService(t)
+	res := approveConsent(t, s, url.Values{
+		"target_kind": {"group"}, "target": {"claude"}, "capability": {"publish"},
+		"read_target_kind": {"site"}, "read_target": {"Bad_Label!"},
+	})
+	if res.errCode != "" {
+		t.Fatalf("unexpected error: %s: %s", res.errCode, res.errDesc)
+	}
+	if len(res.grants) != 1 || res.principal.Can(keys.CapRead, "claude", "report") {
+		t.Fatalf("grants = %+v, want only the write grant", res.grants)
+	}
+}
+
+func TestConsentGrantsReadNotWriteCapability(t *testing.T) {
+	s, _ := newTestService(t)
+	res := approveConsent(t, s, url.Values{
+		"target_kind": {"group"}, "target": {"claude"}, "capability": {"publish", "read"},
+	})
+	if res.errCode != "invalid_scope" {
+		t.Fatalf("got %q, want invalid_scope for capability=read", res.errCode)
+	}
+}
+
+func TestConsentPageReadAccess(t *testing.T) {
+	s, _ := newTestService(t)
+	srv := httptest.NewServer(s.testHandler(&auth.Principal{User: "tester"}))
+	defer srv.Close()
+	var reg registerResponse
+	postJSON(t, srv.URL+"/mcp/oauth/register", registerRequest{RedirectURIs: []string{"https://claude.ai/cb"}, ClientName: "Claude"}, &reg)
+	authURL := srv.URL + "/mcp/oauth/authorize?" + url.Values{
+		"response_type": {"code"}, "client_id": {reg.ClientID}, "redirect_uri": {"https://claude.ai/cb"},
+		"code_challenge": {"c"}, "code_challenge_method": {"S256"},
+	}.Encode()
+	resp, err := http.DefaultClient.Do(ctxReq(t, http.MethodGet, authURL, nil, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, want := range []string{
+		"Read access",
+		`name="read_enabled" value="1">`, // unchecked by default
+		`name="read_target_kind" value="group" checked`,
+		`name="read_target" value="claude"`,
+		"empty means all sites",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("consent page missing %q", want)
+		}
+	}
+	if strings.Contains(body, `name="capability" value="read"`) {
+		t.Error("read must not be offered as a write capability")
+	}
+}
