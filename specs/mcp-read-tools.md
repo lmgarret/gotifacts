@@ -50,43 +50,78 @@ authorized agent without going through the proxy.
   ingest endpoint uses it in v1. The UI description must say it applies to MCP
   connectors.
 
-### Consent screen: separate read target
+### Consent screen: grant editor in the portal (revision 2)
 
-This is the OAuth page at `/mcp/oauth/authorize`
-(`internal/mcpserver/oauth.go`, `consentTmpl`). Today it collects one target
-(kind + path) and a set of capabilities, and produces one grant. A connection
-must be able to publish to one place (e.g. `claude`) and read another (e.g.
-`docs`), so reading gets its **own target**:
+The first version added a separate "Read access" section to the Go-rendered
+consent page. In practice the read target was easy to fill in while leaving its
+checkbox unticked, which silently produced no read grant. It also could not
+express several grants or "all sites", unlike the API keys screen. Revision 2
+replaces it: **the consent screen is rendered by the React portal and uses the
+same grant editor as the API keys screen.**
 
-- `read` is **not** added to `consentCapabilities`. The existing "Scope" and
-  "Capabilities" fieldsets keep their meaning: write access.
-- Add a third fieldset, **Read access**:
-  - a checkbox `read_enabled` ("Allow reading site content"), **unchecked** by
-    default;
-  - its own kind radios, `read_target_kind` (`group` | `site`, default
-    `group`);
-  - its own text field `read_target`, prefilled with `DefaultTarget`, with the
-    placeholder `e.g. docs or docs/app — empty means all sites`.
-  - The kind radios and target field may stay visible when the checkbox is off.
-    No JS is required, but the server must ignore them unless `read_enabled` is
-    set.
-- `parseConsentGrant` becomes `parseConsentGrants(r) ([]store.Grant, error)`:
-  - The write grant is built as today, but only when at least one capability is
-    checked.
-  - When `read_enabled` is set, it appends
-    `store.Grant{Kind: read kind, Target: read target, Permissions:
-    []keys.Capability{keys.CapRead}}`. The read target is validated with the
-    same `normalizeTarget` / `validateGrantTarget`.
-  - Zero grants is an error: `select at least one capability or enable read
-    access`. A read-only connection (no write capabilities) is valid.
-- `authorizeSubmit` stores the returned slice in `AuthCode.Grants`. The
-  storage, token exchange and `Principal.Can` already handle multiple grants.
-  Log one line per grant in the "MCP consent granted" log.
-- The portal's MCP connections view already renders a list of grants; check
-  that a two-grant connection displays correctly.
-- Write grants do **not** imply `read`. To read back what it publishes, set
-  the read target to the same group.
-- The page must stay usable at ~375px.
+What the user sees, at `/mcp/oauth/authorize?...` (URL unchanged, so OAuth
+clients need no change):
+
+- A standalone, centred card with no portal navigation: the logo, the signed-in
+  user, and "**<client name>** wants to access sites on `<base domain>`".
+- A list of grant cards, the same component as the API keys screen
+  (`GrantCard` + `TargetSelect`): scope **group / site / global (all sites)**, a
+  target with suggestions from existing groups and sites (`GET /api/sites`), and
+  the permission checkboxes for **all six capabilities, `read` included**.
+  "+ Add grant" and per-grant remove (when more than one).
+- One default grant, expanded: group `GOTIFACTS_MCP_GROUP` with `publish`
+  (same default as today).
+- A global grant shows the same warning and "I understand the risk" checkbox
+  as the API keys screen; approval is blocked until it is ticked.
+- Client-side validation mirrors the keys screen: at least one grant, each
+  group/site grant needs a target, each grant needs at least one permission.
+- **Approve** and **Deny** buttons. Usable at ~375px.
+
+Implementation:
+
+- **Shared editor.** Extract the grants list (cards, add/remove, global
+  warning + acknowledgement, validation) from `KeyCreateModal.tsx` into a
+  reusable component, e.g. `web/src/components/GrantsEditor.tsx`, used by both
+  the API keys modal and the consent view. The keys modal must behave exactly
+  as before (its admin toggle stays in the modal).
+- **Routing.** `GET /mcp/oauth/authorize` keeps running
+  `validateAuthRequest` (with the `MCPUserAllowed` check). Errors are reported
+  as today: an HTML/plain error before the redirect URI is trusted, an OAuth
+  error redirect after. On success it serves the SPA's `index.html` (the api
+  server's `s.spa` handler) instead of the Go template. The SPA router gets a
+  `consent` view for that path that reads the OAuth parameters from the query
+  string. Remove `consentTmpl`, `consentData`, `consentCap` and the form-POST
+  handling of `POST /mcp/oauth/authorize` (drop that route).
+- **New management-plane endpoints** (forward-auth, `requireUser`, plus
+  `MCPUserAllowed` → 403 otherwise), implemented in `internal/mcpserver` and
+  registered in `internal/api/api.go` next to the other MCP routes:
+  - `GET /api/mcp/consent?client_id&redirect_uri&response_type&code_challenge&code_challenge_method&state`
+    validates the request the same way and returns
+    `{client_name, user, base_domain, default_target, capabilities, csrf}`
+    (`capabilities` = the capabilities the consent screen offers, in display
+    order). Invalid params → 400 JSON `{error}`; no redirects from this
+    endpoint.
+  - `POST /api/mcp/consent` with JSON
+    `{client_id, redirect_uri, code_challenge, code_challenge_method, state, csrf, action: "approve"|"deny", grants: [{kind, target, permissions}], acknowledge_global: bool}`.
+    It checks CSRF, re-validates the request, and answers `200 {redirect_url}`.
+    The URL carries `code` (approve) or `error=access_denied` (deny) or
+    `error=invalid_scope&error_description=...` (bad grants), like the
+    redirects today. Errors before the redirect URI is trusted (unknown client,
+    bad redirect URI) → 400 JSON. The SPA then does
+    `window.location.assign(redirect_url)`.
+- **Grant validation** (server-side, authoritative): 1–16 grants; each `kind`
+  is `group` or `site`; target normalised and checked with `normalizeTarget` /
+  `validateGrantTarget`; permissions non-empty, deduplicated, each one of
+  `consentCapabilities`, which now **includes `read`** (`publish` stays the
+  default); a global grant (group kind, empty target) requires
+  `acknowledge_global: true`, otherwise `invalid_scope` "acknowledge the
+  global-scope risk". Remove `parseConsentGrants`'s `read_enabled` /
+  `read_target*` handling.
+- Storage, token exchange and `Principal.Can` already handle multiple grants;
+  log one "MCP consent granted" line per grant.
+- `docs/openapi.yaml`: document `GET` and `POST /api/mcp/consent` with their
+  schemas (reuse `Grant`). `/mcp/oauth/authorize` is not in the spec today;
+  leave it out.
 
 ### Hidden sites
 
@@ -289,11 +324,17 @@ In `internal/mcpserver` (follow `newTestService` / existing tool tests):
   by default and includes it (with `hidden: true`) when `include_hidden` is set.
 - Not-found: no grant, deleted and missing sites all return the same error
   text.
-- Consent (`oauth.go` tests): write-only → one grant, as today. Write + read
-  with different targets → two grants, and the token can publish to the first
-  and read only the second. Read-only (no capabilities) → one `read` grant.
-  Neither → error. Invalid read target → error. `read_target` is ignored when
-  `read_enabled` is unset.
+- Consent (revision 2): `GET /mcp/oauth/authorize` serves the SPA on valid
+  params and keeps today's error behaviour on invalid ones; non-allowed user →
+  403. `GET /api/mcp/consent` returns client name, default target, offered
+  capabilities (including `read`) and a CSRF token; invalid params → 400.
+  `POST /api/mcp/consent`: bad CSRF → 400; deny → `access_denied` redirect URL;
+  several grants (e.g. publish on `claude` + read on `docs`) → a token that can
+  publish to the first and only read the second; global grant without
+  `acknowledge_global` → `invalid_scope`, with it → allowed; empty grants, an
+  empty permission list, an unknown capability, a bad target or more than 16
+  grants → `invalid_scope`. Migrate `TestOAuthFlow` and the consent helpers to
+  the JSON endpoint.
 - `list_sites`: filtering, paging, `llms_txt` flags.
 - `read_file`: default `llms.txt`, falling back to `index.html`; directory
   path → `index.html`; leading `/`; traversal (`../`, encoded segments) → not
@@ -321,7 +362,9 @@ Run before committing: `go test -race ./...`, `golangci-lint run ./...`,
 
 - Hidden sites: readable under any covering `read` grant; `list_sites` omits
   them unless `include_hidden` is set.
-- Consent: reading has its own target (a "Read access" section), so one
-  connection can publish to one place and read another.
+- Consent (revision 2): the consent screen is a portal page using the API keys
+  grant editor: several grants, group/site/global scopes, and `read` as a
+  regular per-grant permission. It replaces the separate "Read access"
+  section.
 - `group` default: the read tools keep the existing tools' behaviour. Fixing
   access to sites with no group is a separate change.
