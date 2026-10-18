@@ -78,3 +78,33 @@ func TestMCPEnabledMountsRoutes(t *testing.T) {
 		t.Fatalf("issuer = %v (MCP routes not mounted?)", as["issuer"])
 	}
 }
+
+func TestMCPConsentRoutesRequireUser(t *testing.T) {
+	h := newTestServer(t, &config.Config{
+		BaseDomain: "example.com",
+		DataDir:    t.TempDir(),
+		MCPEnabled: true,
+		MCPGroup:   "claude",
+		AdminUsers: []string{"tester"},
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// The consent screen (SPA page and its JSON endpoints) sits behind
+	// forward-auth, so an unauthenticated request never reaches the handlers.
+	for _, rt := range []struct{ method, path string }{
+		{http.MethodGet, "/mcp/oauth/authorize"},
+		{http.MethodGet, "/api/mcp/consent"},
+		{http.MethodPost, "/api/mcp/consent"},
+	} {
+		req, _ := http.NewRequestWithContext(context.Background(), rt.method, srv.URL+rt.path, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s = %d, want 401", rt.method, rt.path, resp.StatusCode)
+		}
+	}
+}

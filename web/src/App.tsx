@@ -6,25 +6,21 @@ import { KeysView } from "./components/KeysView";
 import { ConnectionsView } from "./components/ConnectionsView";
 import { TrashView } from "./components/TrashView";
 import { AccountMenu } from "./components/AccountMenu";
-import { useRoute } from "./router";
-import logoLight from "./assets/logo-light.svg";
-import logoDark from "./assets/logo-dark.svg";
-
-// Light/dark wordmark logos, matching the docs site. CSS swaps which one is
-// shown based on the active color scheme.
-function Logo() {
-  return (
-    <>
-      <img className="logo logo-light" src={logoLight} alt="gotifacts" />
-      <img className="logo logo-dark" src={logoDark} alt="gotifacts" />
-    </>
-  );
-}
+import { ConsentView } from "./components/ConsentView";
+import { Logo } from "./components/Logo";
+import { useRoute, type Routing } from "./router";
 
 export function App() {
+  const routing = useRoute();
+  // The MCP consent screen is standalone: no portal chrome, and it loads its own
+  // data instead of the portal's /api/me.
+  if (routing.route.view === "consent") return <ConsentView />;
+  return <PortalApp {...routing} />;
+}
+
+function PortalApp({ route, navigate, openSite }: Routing) {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { route, navigate, openSite } = useRoute();
   const view = route.view;
   const siteRef = route.site;
   const [trashCount, setTrashCount] = useState(0);

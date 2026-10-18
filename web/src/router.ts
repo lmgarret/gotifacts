@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 // Top-level views, each with a canonical URL. Portal is the app root; the
-// admin views live under /settings/. Individual sites deep-link under /s/. The
+// admin views live under /settings/. The MCP consent screen is a standalone view
+// at the OAuth authorization endpoint, so OAuth clients need no change. Individual
+// sites deep-link under /s/. The
 // Go SPA handler (internal/portal/spa.go) falls back to index.html for unknown
 // paths, so all of these survive a full page reload.
-export type View = "portal" | "keys" | "connections" | "trash";
+export type View = "portal" | "keys" | "connections" | "trash" | "consent";
 
 // SiteRef identifies a site by its path (group may be empty for a flat site).
 export interface SiteRef {
@@ -27,12 +29,14 @@ export const VIEW_PATH: Record<View, string> = {
   keys: "/settings/api-keys",
   connections: "/settings/connections",
   trash: "/settings/trash",
+  consent: "/mcp/oauth/authorize",
 };
 
 const PATH_VIEW: Record<string, View> = {
   "/settings/api-keys": "keys",
   "/settings/connections": "connections",
   "/settings/trash": "trash",
+  "/mcp/oauth/authorize": "consent",
 };
 
 const SITE_PREFIX = "/s/";
@@ -47,6 +51,7 @@ const VIEW_TITLE: Record<View, string> = {
   keys: "API keys · gotifacts",
   connections: "Connections · gotifacts",
   trash: "Trash · gotifacts",
+  consent: "Authorize · gotifacts",
 };
 
 // sitePathTail joins a SiteRef into the group/slug tail used under /s/.
@@ -89,15 +94,18 @@ function titleFor(r: Route): string {
   return r.site ? `${r.site.slug} · gotifacts` : VIEW_TITLE[r.view];
 }
 
+// Routing is what useRoute returns: the current route plus ways to change it.
+export interface Routing {
+  route: Route;
+  navigate: (view: View, opts?: { replace?: boolean }) => void;
+  openSite: (site: SiteRef, opts?: { sub?: string[]; replace?: boolean }) => void;
+}
+
 // useRoute keeps a Route in sync with the browser URL. navigate() switches to a
 // top-level view; openSite() opens a site page. Both push a history entry (or
 // replace it with { replace: true }); Back/Forward is handled via popstate, and
 // the page title tracks the active route.
-export function useRoute(): {
-  route: Route;
-  navigate: (view: View, opts?: { replace?: boolean }) => void;
-  openSite: (site: SiteRef, opts?: { sub?: string[]; replace?: boolean }) => void;
-} {
+export function useRoute(): Routing {
   const [route, setRoute] = useState<Route>(() => routeFromPath(window.location.pathname));
 
   useEffect(() => {

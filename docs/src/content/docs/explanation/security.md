@@ -41,10 +41,10 @@ What bounds the damage is the grant model:
 
 - Reading is its own `read` capability, off by default on the consent screen. A
   connection without it sees no change in behaviour.
-- A read grant has its own target, separate from the publish target. Give a
-  connector that reads untrusted sites a narrow read target, and avoid combining
-  a broad read grant with `purge`, `unpublish` or a wide `publish` grant on the
-  same connection.
+- `read` is granted per grant, so it can have its own target, separate from any
+  publish target. Give a connector that reads untrusted sites a narrow read
+  target, and avoid combining a broad read grant with `purge`, `unpublish` or a
+  wide `publish` grant on the same connection.
 - Only text files of the live revision are served, from inside the site's own
   directory; symlinks and path traversal are refused.
 - Reads are logged (user, tool, group, slug, path, never content) and denials are
